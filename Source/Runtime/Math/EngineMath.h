@@ -13,6 +13,7 @@
 
 #define PI 3.141592f
 #define INDEX_NONE -1
+#define WORLD_MAX 8796093022208.0
 
 namespace FMath
 {

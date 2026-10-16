@@ -98,6 +98,23 @@ void FScene::AddLight(ULightComponent* Component)
 		Proxy->PackedIndex = LocalLightProxies.Num();
 		LocalLightProxies.Add(static_cast<FLocalLightSceneProxy*>(Proxy));
 	}
+
+	// PackedIndex는 RemoveAtSwap 때마다 바뀌므로, Id는 Lights의 빈 칸을 재사용해 고정한다.
+	FLightSceneInfo* Info = new FLightSceneInfo();
+	Info->Proxy = Proxy;
+	Info->bVisible = Proxy->IsVisible();
+	Info->Scene = this;
+	Info->Id = Lights.Find(nullptr);
+	if (Info->Id == INDEX_NONE)
+	{
+		Info->Id = Lights.Num();
+		Lights.Add(Info);
+	}
+	else
+	{
+		Lights[Info->Id] = Info;
+	}
+	Proxy->LightSceneInfo = Info;
 }
 
 void FScene::RemoveLight(ULightComponent* Component)
@@ -129,12 +146,20 @@ void FScene::RemoveLight(ULightComponent* Component)
 			LocalLightProxies[Index]->PackedIndex = Index;
 	}
 
+	if (FLightSceneInfo* Info = Proxy->LightSceneInfo)
+	{
+		if (Info->Id >= 0 && Info->Id < Lights.Num()) Lights[Info->Id] = nullptr;
+		delete Info;
+	}
+
 	Component->SceneProxy = nullptr;
 	delete Proxy;
 }
 
 void FScene::RemoveAllLights()
 {
+	for (FLightSceneInfo* Info : Lights) delete Info;
+	Lights.Reset();
 	for (FLightSceneProxy* Proxy : DirectionalLightProxies) delete Proxy;
 	for (FLightSceneProxy* Proxy : LocalLightProxies)       delete Proxy;
 	DirectionalLightProxies.Reset();

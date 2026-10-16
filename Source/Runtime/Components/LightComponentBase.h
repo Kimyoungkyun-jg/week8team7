@@ -11,11 +11,12 @@ class ULightComponentBase : public USceneComponent
 	REFLECT_START(ULightComponentBase)
 		PROPERTY(Intensity)
 		PROPERTY(LightColor)
-	REFLECT_END()
+		PROPERTY(CastShadows)
+		PROPERTY(CastDynamicShadows)
+		REFLECT_END()
 public:
 	ULightComponentBase();
 	virtual ~ULightComponentBase() override;
-
 
 	// Getter
 	float GetIntensity() const { return Intensity; }
@@ -24,12 +25,15 @@ public:
 	// Setter
 	void SetIntensity(float InIntensity) { Intensity = InIntensity; }
 	void SetLightColor(FColor InLightColor) { LightColor = InLightColor; }
-	
 
-protected:
+	void SetCastShadows(bool bNewValue);
+
+	virtual void PostEditChangeProperty(const FProperty& Property) override;
+
+	bool CastShadows = true;
+	bool CastDynamicShadows = true;
+
 	float Intensity = 1.0f;
 	FColor LightColor = FColor(255, 255, 255, 255);
-
 private:
-
 };

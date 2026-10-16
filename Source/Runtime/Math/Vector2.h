@@ -35,4 +35,7 @@ struct FVector2
 
 	FVector2 operator*(const float Scalar) { return FVector2(X * Scalar, Y * Scalar); }
 	FVector2 operator*(const float Scalar) const { return FVector2(X * Scalar, Y * Scalar); }
+
+	bool operator==(const FVector2& Other) const { return X == Other.X && Y == Other.Y; }
+	bool operator!=(const FVector2& Other) const { return !(*this == Other); }
 };

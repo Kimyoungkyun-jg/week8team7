@@ -83,6 +83,15 @@ bool UPrimitiveComponent::MoveComponent(const FVector& Delta, const FRotator& Ne
 	return Super::MoveComponent(Delta, NewRotation, bSweep, Hit);
 }
 
+void UPrimitiveComponent::SetCastShadow(bool NewCastShadow)
+{
+	if (NewCastShadow != CastShadow)
+	{
+		CastShadow = NewCastShadow;
+		MarkRenderStateDirty();
+	}
+}
+
 void UPrimitiveComponent::CreateRenderState()
 {
 	Super::CreateRenderState();

@@ -22,8 +22,7 @@ float4 mainVS(VS_INPUT Input) : SV_POSITION
     return mul(WorldPosition, VP);
 }
 
-float4 mainPS() : SV_TARGET
+void mainPS()
 {
-    // 프리패스에는 색 타깃을 연결하지 않는다.
-    return 0.0f;
+    
 }

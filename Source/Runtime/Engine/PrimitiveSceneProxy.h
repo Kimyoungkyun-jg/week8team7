@@ -32,6 +32,9 @@ public:
     const FCachedMeshLOD& GetLOD(uint32 Index) const { return RenderState->LODs[Index]; }
     const FCachedMeshSection& GetSection(uint32 Index) const { return RenderState->Sections[Index]; }
     FScene* GetScene() const { return Scene; }
+
+    bool bCastDynamicShadow = true;
+    bool bReceiveShadow = true;
 private:
     friend class FScene;
     FScene* Scene = nullptr;

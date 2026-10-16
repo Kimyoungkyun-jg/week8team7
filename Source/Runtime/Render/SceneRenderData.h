@@ -6,6 +6,7 @@
 #include "Engine/LightSceneProxy.h"
 #include "Render/LightRenderData.h"
 #include "Render/SceneLightResources.h"
+#include "Render/SceneRendering.h"
 #include <algorithm>
 #include <iterator>
 #include <vector>
@@ -50,6 +51,8 @@ struct FSceneRenderData
 	FSkyLightRenderData SkyLight{};
 	bool bHasSkyLight = false;
 	TArray<FLightRenderParameters> VisibleLights; // 모든 종류의 광원. 업로드할 때 종류별 구간으로 정렬한다
+	TArray<TUniquePtr<FProjectedShadowInfo>> ProjectedShadows;
+	TArray<FVisibleLightInfo> VisibleLightInfos;
 
 	void ResetScene()
 	{
@@ -73,6 +76,8 @@ struct FSceneRenderData
 		SkyLight = {};
 		bHasSkyLight = false;
 		VisibleLights.Reset();
+		VisibleLightInfos.Reset();
+		ProjectedShadows.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Packets.Reset();

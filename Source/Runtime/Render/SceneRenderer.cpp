@@ -104,6 +104,9 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 
 	if (RenderData.ViewLightResources.Init())
 		bLightUploadSucceeded = RenderData.ViewLightResources.UploadViewLights(RenderData.VisibleLights, LightCounts, LightOffsets);
+
+	// FLightSceneInfo::Id로 찾는 라이트별 그림자 목록. 그림자는 2단계 InitDynamicShadows에서 채운다.
+	RenderData.VisibleLightInfos.SetNum(Scene.Lights.Num());
 }
 
 bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height)
