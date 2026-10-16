@@ -7,6 +7,7 @@
 
 class FPrimitiveSceneProxy;
 struct FLightSceneInfo;
+class FSceneRenderer;
 
 // 그림자 맵 한 장. 프레임마다 FSceneRenderData가 만들고 비운다.
 class FProjectedShadowInfo
@@ -30,9 +31,14 @@ public:
 	TArray<FPrimitiveSceneProxy*> DynamicSubjectPrimitives;
 	TArray<FMeshDrawBatch> ShadowDepthBatches;   // 언리얼의 ShadowDepthPass 역할
 
-	// 2단계에서 구현한다.
-	void SetupWholeSceneProjection(...);
-	void AddSubjectPrimitive(FPrimitiveSceneProxy*);
+	FFrustumPlanes CasterFrustum{};
+
+	void SetupWholeSceneProjection(FLightSceneInfo* InLightSceneInfo,
+		const FWholeSceneProjectedShadowInitializer& Initializer,
+		uint32 InResolutionX, uint32 InResolutionY, uint32 InBorderSize);
+	void AddSubjectPrimitive(FPrimitiveSceneProxy* Proxy) { DynamicSubjectPrimitives.Add(Proxy); }
 	float GetShaderDepthBias() const;
 	float GetShaderSlopeDepthBias() const;
+
+	void SetupMeshDrawCommandsForShadowDepth(FSceneRenderer& Renderer);
 };

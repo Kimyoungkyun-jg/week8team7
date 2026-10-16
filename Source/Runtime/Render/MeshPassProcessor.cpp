@@ -43,7 +43,11 @@ namespace
 		Batch.VertexBuffer = Mesh->GetVertexBuffer(LOD);
 		Batch.IndexBuffer = Mesh->GetIndexBuffer(LOD);
 		if (!Batch.VertexBuffer || !Batch.IndexBuffer) return false;
-		const bool bUsesUberShader = Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal;
+		const bool bUsesUberShader = Pass == EMeshPassType::Forward
+			|| Pass == EMeshPassType::WorldNormal
+			|| Pass == EMeshPassType::CSMShadowDepth;
+
+
 		if (bUsesUberShader)
 		{
 			const bool bWorldNormal = Pass == EMeshPassType::WorldNormal;
@@ -135,7 +139,8 @@ namespace
 		Item.IndexCount = IndexCount;
 		Item.ObjectKey = ObjectKey;
 		Item.bOccludedByGpu = bOccludedByGpu;
-		if (Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal)
+		if (Pass == EMeshPassType::Forward || Pass == EMeshPassType::WorldNormal
+			|| Pass == EMeshPassType::CSMShadowDepth)
 		{
 			FForwardObjectConstants Constants{};
 			Constants.World = World;
@@ -157,16 +162,16 @@ namespace
 
 bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue,
 	const FSceneRenderData* SceneData, EMeshPassType Pass,
-	std::vector<FMeshDrawBatch>& Out, ELightingModel LightingModel) const
+	TArray<FMeshDrawBatch>& Out, ELightingModel LightingModel) const
 {
-	Out.clear();
+	Out.Reset();
 	if (Pass != EMeshPassType::Translucent && SceneData)
 	{
 		std::vector<const FStaticDrawGroup*> Groups;
 		for (const FSceneRenderData::FGatherChunk& Chunk : SceneData->GatherChunks)
 			for (const FStaticDrawGroup& Group : Chunk.Groups)
 				if (!Group.Items.empty()) Groups.push_back(&Group);
-		
+
 		std::sort(Groups.begin(), Groups.end(),
 			[](const FStaticDrawGroup* A, const FStaticDrawGroup* B) { return GroupKey(*A) < GroupKey(*B); }); // 재질, 메시, LOD 순으로 정렬
 
@@ -179,12 +184,12 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 			for (const FStaticDrawItem& Item : Group->Items)
 				Batch.Items.push_back(BuildItem(Item.Proxy->GetLocalToWorld(), View, Pass, Item.Slot,
 					Item.StartIndex, Item.IndexCount, Item.Proxy, Item.bOccludedByGpu != 0));
-			Out.push_back(std::move(Batch));
+			Out.Add(std::move(Batch));
 		}
 	}
 	const uint32 Begin = Pass == EMeshPassType::Translucent ? Queue.GetFirstTranslucentIndex() : 0;
 	const uint32 End = Pass == EMeshPassType::Translucent ? Queue.Num() : Queue.GetFirstTranslucentIndex();
-	Out.reserve(Out.size() + End - Begin);
+	Out.Reserve(Out.size() + End - Begin);
 	for (uint32 Index = Begin; Index < End; ++Index)
 	{
 		const FRenderPacket& Packet = Queue[Index];
@@ -193,13 +198,13 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		FMeshDrawBatch Batch;
 		if (!BuildBatch(Batch, Packet.Mesh, Packet.LODIndex, Packet.Material, Pass, View,
 			LightingModel, Packet.MaterialParamData, Packet.MaterialParamDataSize)) return false;
-		
+
 		const uint32 IndexCount = Packet.IndexCount ? Packet.IndexCount : Batch.IndexBuffer->GetIndexCount();
 		const void* ObjectKey = Packet.Proxy ? static_cast<const void*>(Packet.Proxy) : static_cast<const void*>(&Packet);
-		
+
 		Batch.Items.push_back(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
 			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu));
-		Out.push_back(std::move(Batch));
+		Out.Add(std::move(Batch));
 	}
 	return true;
 }

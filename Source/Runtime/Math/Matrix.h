@@ -63,6 +63,9 @@ public:
 	//static XMMATRIX FMatrixToXMMatrix(const FMatrix& M);
 	//static FMatrix XMMatrixToFMatrix(const XMMATRIX& Matrix);
 
+	static FMatrix MakeView(const FVector& Position, const FRotator& Rotation);
+	static FMatrix MakePerspectiveLH(float FOV, float AspectRatio, float Near, float Far);
+
 /* Operator */
 
 	FMatrix& operator = (const FMatrix& Other);

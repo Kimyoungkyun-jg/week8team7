@@ -95,14 +95,16 @@ class FPointLightSceneProxy : public FLocalLightSceneProxy
 {
 public:
 	using FLocalLightSceneProxy::FLocalLightSceneProxy;
-	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+	virtual void GetLightShaderParameters(FLightRenderParameters& Out) const override;
 };
 
-class FSpotLightSceneProxy : public FLocalLightSceneProxy
+class FSpotLightSceneProxy : public FPointLightSceneProxy
 {
 public:
-	using FLocalLightSceneProxy::FLocalLightSceneProxy;
+	using FPointLightSceneProxy::FPointLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+
+	virtual bool GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const override;
 };
 
 class FRectLightSceneProxy : public FLocalLightSceneProxy

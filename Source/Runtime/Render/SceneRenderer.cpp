@@ -20,6 +20,9 @@
 DECLARE_CYCLE_STAT("Frustum Cull", STAT_FrustumCull);
 DECLARE_CYCLE_STAT("Gather Elements", STAT_GatherElements);
 
+static constexpr uint32 ShadowMapBaseResolution = 1024;
+static constexpr uint32 ShadowMapMaxResolution = 2048;
+
 namespace
 {
 	FRenderGraphRasterPassDesc MakeViewportPass(const std::string& Name, FRenderGraphTextureRef Color,
@@ -50,7 +53,7 @@ FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FScene
 }
 
 // 구체와 절두체 평면 교차 판별
-bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const
+bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane(&Planes)[6]) const
 {
 	const float Radius = PositionRadius.W;
 	for (const FPlane& Plane : Planes)
@@ -65,6 +68,25 @@ bool FSceneRenderer::IntersectSphereFrustum(const FVector4& PositionRadius, cons
 		}
 	}
 	return true;
+}
+
+void FSceneRenderer::AddInteractingPrimitives(FProjectedShadowInfo* Shadow)
+{
+	FScene& Scene = World->GetScene();
+	const FFrustumPlanes& Frustum = Shadow->CasterFrustum;
+
+	Scene.BVH.QueryCull(FrustumAllPlanesMask, [&Frustum](const FBox& Bounds, uint32& Mask)
+		{
+			return static_cast<EBVHCullResult>(ClassifyBoxInFrustum(Bounds, Frustum, Mask));
+		},
+		[&](FPrimitiveSceneProxy* Proxy)
+		{
+			if (!Proxy->bCastDynamicShadow) return;
+			if (!Proxy->IsShown(View.bGameView)) return;
+			if (!Proxy->GetMesh()) return;
+
+			Shadow->AddSubjectPrimitive(Proxy);
+		});
 }
 
 // 가시성 검사 및 렌더 큐 수집
@@ -102,32 +124,71 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 		RenderData.VisibleLights.Add(Parameters);
 	}
 
+	RenderData.VisibleLightInfos.SetNum(Scene.Lights.Num());
+	InitDynamicShadows();
+
 	if (RenderData.ViewLightResources.Init())
 		bLightUploadSucceeded = RenderData.ViewLightResources.UploadViewLights(RenderData.VisibleLights, LightCounts, LightOffsets);
 
 	// FLightSceneInfo::Id로 찾는 라이트별 그림자 목록. 그림자는 2단계 InitDynamicShadows에서 채운다.
-	RenderData.VisibleLightInfos.SetNum(Scene.Lights.Num());
+}
+
+void FSceneRenderer::InitDynamicShadows()
+{
+	FScene& Scene = World->GetScene();
+	for (FLightSceneInfo* Info : Scene.Lights)
+	{
+		if (Info == nullptr || !Info->Proxy) continue;
+		FLightSceneProxy* Proxy = Info->Proxy;
+		if (!Proxy->CastsDynamicShadow()) { HTR_LOG(Info, "[Shadow] Light {} skip: CastShadows off", Info->Id); continue; }
+		if (!Proxy->IsEnabled()) { HTR_LOG(Info, "[Shadow] Light {} skip: Intensity 0", Info->Id);     continue; }
+		if (!Proxy->IsShown(View.bGameView)) { HTR_LOG(Info, "[Shadow] Light {} skip: hidden", Info->Id);          continue; }
+		if (!IsLightInView(Proxy)) { HTR_LOG(Info, "[Shadow] Light {} skip: out of view", Info->Id);     continue; }
+
+		ELightType Type = Proxy->GetLightComponent()->GetLightType();
+
+		switch (Type)
+		{
+		case ELightType::Directional:
+			break;
+		case ELightType::Point:
+			break;
+		case ELightType::Spot:
+			CreateWholeSceneProjectedShadow(Info);
+			break;
+		case ELightType::Rect:
+			break;
+		case ELightType::Fireball:
+			break;
+		case ELightType::Sky:
+			break;
+		default:
+			break;
+		}
+	}
+
+	HTR_LOG(Info, "[Shadow] View {} : {} shadows", View.ViewIndex, RenderData.ProjectedShadows.Num());
 }
 
 bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height)
 {
 	FSceneLightResources& LightResources = RenderData.ViewLightResources;
 	if (!bLightUploadSucceeded || !LightResources.GetDeferredConstants()) return false;
-	
+
 	FDeferredLightConstants Constants{};
 	Constants.InverseViewProjection = View.ViewProjectionMatrix.Inverse();
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y,
 		View.ViewLocation.Z, View.bIsPerspective ? 1.0f : 0.0f);
 	Constants.CameraForward = FVector4(View.ViewForward.X, View.ViewForward.Y, View.ViewForward.Z, 0.0f);
-	
+
 	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight ? World->GetScene().FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
 	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight; // 지금 환경광 계산이 ambient + skylight로 되어있어서 sky 잇으면 ambient 0으로 해줘야됨
-	
+
 	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
-	
+
 	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
 	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets)); // LightOffset은 각 조명별로 시작하는 위치
-	
+
 	Constants.ViewportSize = FVector4(static_cast<float>(Width), static_cast<float>(Height), 0.0f, 0.0f);
 	Renderer->UpdateConstant(LightResources.GetDeferredConstants(), &Constants, sizeof(Constants));
 	Renderer->BindConstant(0, LightResources.GetDeferredConstants(), EShaderBindFlagBits::Pixel);
@@ -141,34 +202,34 @@ bool FSceneRenderer::BindForwardLighting(FRenderer* Renderer, const FSceneRender
 {
 	FSceneLightResources& LightResources = RenderData.ViewLightResources;
 	if (!bLightUploadSucceeded || !LightResources.GetForwardConstants()) return false;
-	
+
 	FPipelineState* BasePSO = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_Forward);
 	FShaderProgram* Program = FRenderResourceManager::GetForwardShaderProgram(Options.LightingModel);
-	
+
 	if (!BasePSO || !Program) return false;
 	FForwardLightingConstants Constants{};
-	
+
 	const FSkyLightEnvironment* Sky = RenderData.bHasSkyLight ? World->GetScene().FindSkyLightEnvironment(RenderData.SkyLight.SourcePath) : nullptr;
 	Constants.Ambient = Sky ? FAmbientLightRenderData{ FVector4(0.0f) } : RenderData.AmbientLight;
-	
+
 	if (Sky) Constants.SkyColorIntensity = RenderData.SkyLight.ColorIntensity;
 	Constants.CameraPosition = FVector4(View.ViewLocation.X, View.ViewLocation.Y, View.ViewLocation.Z, 1.0f);
-	
+
 	std::memcpy(Constants.LightCounts, LightCounts, sizeof(LightCounts));
 	std::memcpy(Constants.LightOffsets, LightOffsets, sizeof(LightOffsets));
-	
+
 	Renderer->UpdateConstant(LightResources.GetForwardConstants(), &Constants, sizeof(Constants));
 	Renderer->BindConstant(1, LightResources.GetForwardConstants(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	
+
 	FForwardLightTileGrid& Tiles = LightResources.GetTiles();
 	Tiles.PreparePixelShader(Renderer, bTilesBuilt);
 	Renderer->BindPixelConstant(3, Tiles.GetPixelConstants());
 	const std::array<ID3D11ShaderResourceView*, 3> TileSRVs = Tiles.GetPixelResources();
 	Renderer->BindRawPixelResources(9, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data(), 2));
 	Renderer->BindRawPixelResources(12, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data() + 2, 1));
-	
+
 	Renderer->BindStructured(8, (LightCounts[0] || LightCounts[1] || LightCounts[2] || LightCounts[3]) &&
 		LightResources.GetSceneLights() && LightResources.GetSceneLights()->GetSRV()
 		? LightResources.GetSceneLights() : nullptr,
@@ -202,12 +263,74 @@ bool FSceneRenderer::AddWorldNormalPass(FRenderGraphBuilder& Graph, FRenderer* R
 		{
 			if (!bDrawPrimitives) return;
 			FMeshPassProcessor Processor;
-			std::vector<FMeshDrawBatch> Batches;
+			TArray<FMeshDrawBatch> Batches;
 			bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
 				&RenderData, EMeshPassType::WorldNormal, Batches);
 			if (bCorePassSucceeded)
 				Renderer->DrawMeshes(Batches);
 		});
+}
+
+bool FSceneRenderer::IsLightInView(FLightSceneProxy* Proxy)
+{
+	ELightType Type = Proxy->GetLightComponent()->GetLightType();
+
+	switch (Type)
+	{
+	case ELightType::Directional:
+		break;
+	case ELightType::Point:
+		break;
+	case ELightType::Spot:
+		return IsAABBInFrustum(FAABB{}, View.Frustum);
+		break;
+	case ELightType::Rect:
+		break;
+	case ELightType::Fireball:
+		break;
+	case ELightType::Sky:
+		break;
+	default:
+		break;
+	}
+
+	return false;
+}
+
+void FSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneInfo* LightSceneInfo)
+{
+	FLightSceneProxy* Proxy = LightSceneInfo->Proxy;
+	FVisibleLightInfo& VisibleLightInfo = RenderData.VisibleLightInfos[LightSceneInfo->Id];
+
+	if (Proxy->GetShadowResolutionScale() <= 0.0f) return;
+
+	TArray<FWholeSceneProjectedShadowInitializer> ProjectedShadowInitializers;
+	if (!Proxy->GetWholeSceneProjectedShadowInitializer(View, ProjectedShadowInitializers)) return;
+
+	const float Desired = ShadowMapBaseResolution * Proxy->GetShadowResolutionScale();
+	uint32 Size = 1;                                    
+	while (Size << 1 <= static_cast<uint32>(Desired)) Size <<= 1u;
+	Size = std::clamp(Size, 16u, ShadowMapMaxResolution);
+
+	for (const FWholeSceneProjectedShadowInitializer& Initializer : ProjectedShadowInitializers)
+	{
+		RenderData.ProjectedShadows.Add(MakeUnique<FProjectedShadowInfo>()); 
+		FProjectedShadowInfo* Shadow = RenderData.ProjectedShadows.Last().get();
+		Shadow->SetupWholeSceneProjection(LightSceneInfo, Initializer, Size, Size, /*Border*/0);
+
+		AddInteractingPrimitives(Shadow);
+		Shadow->SetupMeshDrawCommandsForShadowDepth(*this);
+		HTR_LOG(Info, "[Shadow] Light {} : Casters {}, DepthBatches {}",
+			LightSceneInfo->Id, Shadow->DynamicSubjectPrimitives.Num(), Shadow->ShadowDepthBatches.size());
+		if (Shadow->DynamicSubjectPrimitives.Num() == 0) continue;   // 그릴 물체가 없으면 버림 
+
+		VisibleLightInfo.AllProjectedShadows.Add(Shadow);
+		VisibleLightInfo.ShadowsToProject.Add(Shadow);         
+
+		HTR_LOG(Info, "[Shadow] Light {} : Size {}x{}, Near {}, Far {}, Casters {}",
+			LightSceneInfo->Id, Shadow->ResolutionX, Shadow->ResolutionY,
+			Shadow->MinSubjectZ, Shadow->MaxSubjectZ, Shadow->DynamicSubjectPrimitives.Num());
+	}
 }
 
 bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
@@ -228,7 +351,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	{
 		if (FSkyLightEnvironment* Pending = World->GetScene().FindPendingSkyLightEnvironment(RenderData.SkyLight.SourcePath))
 		{
-			FRenderGraphComputePassDesc Environment{}; 
+			FRenderGraphComputePassDesc Environment{};
 			Environment.Name = "BuildSkyEnvironment";
 			Environment.ReadResources = { Pending->GetPanoramaResource() };
 			Environment.WriteResources = { Pending->GetEnvironmentResource() };
@@ -289,12 +412,12 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			}; // GBuffer Pass 에는 BaseColor 와 Normal Texture가 Clear된 상태로 필요하다
 
 			GBuffer.DepthAttachment = { Depth, ERenderGraphLoadAction::Clear, 1.0f, 0 }; // GBuffer Pass 에는 Depth Texture가 Clear된 상태로 필요하다
-			
+
 
 			if (!Graph.AddRasterPass(std::move(GBuffer), [this, Renderer]
 				{
 					PrepareDrawData(Renderer, RenderData);
-					std::vector<FMeshDrawBatch> Batches;
+					TArray<FMeshDrawBatch> Batches;
 					FMeshPassProcessor Processor;
 					bCorePassSucceeded = Processor.Build(View, RenderData.RenderQueue,
 						&RenderData, EMeshPassType::GBuffer, Batches);
@@ -320,7 +443,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 						return;
 					}
 					const std::array<FTexture2D*, 3> Textures =
-						{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth) };
+					{ Graph.Resolve(BaseColor), Graph.Resolve(Normal), Graph.Resolve(Depth) };
 					if (FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::DeferredLighting);
 						Pipeline && Pipeline->Shader && Pipeline->Shader->VertexShader && Pipeline->Shader->PixelShader)
 						Renderer->DrawFullscreen(*Pipeline, Textures);
@@ -339,7 +462,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	}
 	else // Forward Rendering
 	{
-		ForwardBatches.clear();
+		ForwardBatches.Reset();
 		if (Options.bDrawPrimitives)
 		{
 			FMeshPassProcessor Processor;
@@ -354,7 +477,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		std::memcpy(GridLighting.LightOffsets, LightOffsets, sizeof(LightOffsets));
 
 		// 픽셀 조명 경로에서만 목록을 사용한다.
-		const ELightCullingMode CullingMode = !View.bIsWireframe &&	Options.LightingModel != ELightingModel::Gouraud ? Options.LightCullingMode : ELightCullingMode::Off;
+		const ELightCullingMode CullingMode = !View.bIsWireframe && Options.LightingModel != ELightingModel::Gouraud ? Options.LightCullingMode : ELightCullingMode::Off;
 
 		// Off도 이번 프레임의 화면 정보와 입력 광원 개수를 갱신한다.
 		bool bUseDepthPrepass = false;
@@ -374,11 +497,11 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Graph.AddRasterPass(std::move(Prepass), [this, Renderer, DepthPipeline]
 				{
 					PrepareDrawData(Renderer, RenderData);
-					if (ForwardBatches.empty()) return;
+					if (ForwardBatches.IsEmpty()) return;
 
 					// 실제 메시 패스와 같은 VS를 사용해 깊이 계산을 일치시킨다.
-					FShaderProgram DepthProgram(ForwardBatches.front().Pipeline.Shader->VertexShader, DepthPipeline->Shader->PixelShader);
-					std::vector<FMeshDrawBatch> DepthBatches = ForwardBatches;
+					FShaderProgram DepthProgram(ForwardBatches.Front().Pipeline.Shader->VertexShader, DepthPipeline->Shader->PixelShader);
+					TArray<FMeshDrawBatch> DepthBatches = ForwardBatches;
 					for (FMeshDrawBatch& Batch : DepthBatches)
 					{
 						Batch.Pipeline = *DepthPipeline;
@@ -402,7 +525,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				{
 					if (bCorePassSucceeded)
 						bTilesBuilt = RenderData.ViewLightResources.GetTiles().ExecuteBuild(Renderer, DepthTexture, SceneLights);
-				})) 
+				}))
 				return false;
 		}
 		FRenderGraphRasterPassDesc Forward{};
@@ -458,7 +581,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	}
 	if (!AddCorePasses(Graph, Renderer, Targets, CoreOptions, Skybox)) // 기본적으로 그려져야 되는 Core Pass 들
 		return false;
-	
+
 	const FRenderGraphTextureRef SceneColor = Graph.ImportTexture(Targets.SceneColor.get(), "SceneColor");
 	const FRenderGraphTextureRef Depth = Graph.ImportTexture(Targets.Depth.get(), "SceneDepth");
 	if (!SceneColor || !Depth) return false;
@@ -477,7 +600,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		Pass.ReadTextures = { Depth };
 		if (!Graph.AddRasterPass(std::move(Pass), [this, DrawFog = Callbacks.HeightFog]
 			{
-			bHasFog = DrawFog();
+				bHasFog = DrawFog();
 			})) return false;
 	}
 	if (!Options.bShowWorldNormal && Options.bDrawPrimitives)
@@ -485,7 +608,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		if (!Graph.AddRasterPass(MakeViewportPass("Translucent", SceneColor, Depth),
 			[this, Renderer, GetFog = Callbacks.TranslucentFogConstants]
 			{
-			RenderTranslucent(Renderer, GetFog ? GetFog(bHasFog) : nullptr);
+				RenderTranslucent(Renderer, GetFog ? GetFog(bHasFog) : nullptr);
 			})) return false;
 	}
 	if (!Options.bShowWorldNormal && Callbacks.SceneText &&
@@ -508,7 +631,7 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 		Pass.ReadTextures = { SceneColor };
 		if (!Graph.AddRasterPass(std::move(Pass), [this, ApplyFXAA = Callbacks.FXAA]
 			{
-			bFXAAPassSucceeded = ApplyFXAA();
+				bFXAAPassSucceeded = ApplyFXAA();
 			})) return false;
 	}
 
@@ -568,7 +691,7 @@ void FSceneRenderer::RenderTranslucent(FRenderer* Renderer, FConstantBuffer* Fog
 
 	Renderer->BindPixelConstant(3, FogConstants);
 	PrepareDrawData(Renderer, RenderData);
-	std::vector<FMeshDrawBatch> Batches;
+	TArray<FMeshDrawBatch> Batches;
 	FMeshPassProcessor Processor;
 	if (Processor.Build(View, RenderData.RenderQueue, &RenderData,
 		EMeshPassType::Translucent, Batches))
@@ -595,9 +718,9 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 		SCOPE_CYCLE_COUNTER(STAT_FrustumCull);
 		// 표시 상태는 프록시 캐시로 판정해 오클루전과 드로우 수집 전에 제외한다.
 		const auto Visit = [&](FPrimitiveSceneProxy* Proxy)
-		{
-			if (Proxy->IsShown(View.bGameView)) VisibleProxies.Add(Proxy);
-		};
+			{
+				if (Proxy->IsShown(View.bGameView)) VisibleProxies.Add(Proxy);
+			};
 
 		if (Frustum)
 		{
@@ -668,7 +791,7 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 		LODInputs.Reset();
 		LODInputs.Reserve(VisibleProxies.Num());
 		for (const FPrimitiveSceneProxy* Proxy : VisibleProxies)
-			LODInputs.Add({Proxy->GetLODSphere(), Proxy->GetRenderState()});
+			LODInputs.Add({ Proxy->GetLODSphere(), Proxy->GetRenderState() });
 		SelectLODs(LODInputs, View, SelectedLODs);
 		Tasks::ParallelForChunks(VisibleCount, ChunkCount, [&](uint32 Begin, uint32 End, uint32 ChunkIndex)
 			{
@@ -754,7 +877,7 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 				}
 			});
 
-	// 이 뷰의 스태틱 드로우 수를 세고, 실제 렌더링할 때에만 해당 묶음을 바인딩한다.
+		// 이 뷰의 스태틱 드로우 수를 세고, 실제 렌더링할 때에만 해당 묶음을 바인딩한다.
 		uint32 StaticDraws = 0;
 		if (Renderer)
 		{

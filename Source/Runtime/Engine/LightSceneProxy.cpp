@@ -59,6 +59,27 @@ void FSpotLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out)
 	Out.OuterConeCos = std::cos(FMath::DegreesToRadians(Outer));
 }
 
+bool FSpotLightSceneProxy::GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const
+{
+	const USpotLightComponent* Spot = Cast<const USpotLightComponent>(LightComponent);
+
+	const FVector LightPos = Spot->GetWorldLocation();
+	const float Radius = Spot->GetAttenuationRadius();
+	const float Outer = FMath::Clamp(Spot->GetOuterConeAngle(), 0.0f, 89.0f);
+	const float InvTan = 1.0f / tanf(FMath::DegreesToRadians(Outer));
+
+	FWholeSceneProjectedShadowInitializer& OutInitializer = OutInitializers.AddDefaulted_GetRef();
+	OutInitializer.PreShadowTranslation = -LightPos;
+	OutInitializer.WorldToLight = Spot->GetWorldRotation().Quaternion().ToFMatrix().GetTransposed();
+	OutInitializer.Scales = FVector2(InvTan, InvTan);
+	OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(Radius), Radius);
+	OutInitializer.WAxis = FVector4(0, 0, 1, 0);
+	OutInitializer.MinLightW = 0.1f;
+	OutInitializer.MaxDistanceToCastInLightW = Radius;
+
+	return true;
+}
+
 void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
 {
 	const auto* RectLightComponent = static_cast<const URectLightComponent*>(LightComponent);

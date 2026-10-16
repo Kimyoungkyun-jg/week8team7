@@ -52,6 +52,7 @@ public:
 
 	// 가시성 검사 및 렌더 큐 수집
 	void InitViews(FRenderer* Renderer);
+	void InitDynamicShadows();
 
 	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
 	static void GatherRenderPackets(FScene& Scene, FSceneRenderData& Data, const FViewContext& View,
@@ -74,6 +75,10 @@ public:
 
 	// 뷰 정보 조회
 	const FSceneView& GetView() const { return View; }
+
+	bool IsLightInView(FLightSceneProxy* Proxy);
+
+	void CreateWholeSceneProjectedShadow(FLightSceneInfo* LightSceneInfo);
 	
 private:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
@@ -85,6 +90,8 @@ private:
 	void UnbindForwardLighting(FRenderer* Renderer);
 	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
 
+	void AddInteractingPrimitives(FProjectedShadowInfo* Shadow);
+
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
@@ -92,7 +99,7 @@ private:
 	uint32 LightOffsets[4]{};
 	bool bLightUploadSucceeded = false;
 	bool bTilesBuilt = false;
-	std::vector<FMeshDrawBatch> ForwardBatches;
+	TArray<FMeshDrawBatch> ForwardBatches;
 	FViewContext CachedViewContext;
 	bool bCorePassSucceeded = true;
 	bool bFXAAPassSucceeded = true;

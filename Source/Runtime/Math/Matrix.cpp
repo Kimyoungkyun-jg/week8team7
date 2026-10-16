@@ -338,6 +338,36 @@ FMatrix FMatrix::Identity = FMatrix(
 	0.0f, 0.0f, 0.0f, 1.0f
 );
 
+FMatrix FMatrix::MakeView(const FVector& Position, const FRotator& Rotation)
+{
+	FQuat WorldQuat = Rotation.Quaternion();
+	FMatrix RotationMatrix = WorldQuat.ToFMatrix();
+
+	FMatrix InverseTranslation = FMatrix::MakeTranslation(Position * -1.0f);
+	FMatrix InverseRotation = RotationMatrix.GetTransposed();
+
+	return InverseTranslation * InverseRotation;
+}
+
+FMatrix FMatrix::MakePerspectiveLH(float FOV, float AspectRatio, float Near, float Far)
+{
+	const float HalfFOV = FMath::DegreesToRadians(FOV) * 0.5f;
+
+	const float YScale = 1.0f / tan(HalfFOV);
+	const float XScale = YScale / AspectRatio;
+
+	const float ZScale = Far / (Far - Near);
+	const float ZOffset = -Near * Far / (Far - Near);
+
+	//Forward가 X인 좌표
+	return FMatrix(
+		0.0f, 0.0f, ZScale, 1.0f,
+		XScale, 0.0f, 0.0f, 0.0f,
+		0.0f, YScale, 0.0f, 0.0f,
+		0.0f, 0.0f, ZOffset, 0.0f
+	);
+}
+
 /* Global Operator */
 std::ostream& operator << (std::ostream& OS, const FMatrix& M)
 {
@@ -356,3 +386,4 @@ FRotator MatrixToRotator(const FMatrix& Mat)
 	R.Yaw = atan2f(Mat.M[0][1], Mat.M[0][0]) * 180.0f / PI;
 	return R;
 }
+

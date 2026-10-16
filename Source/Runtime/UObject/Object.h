@@ -86,8 +86,8 @@ public:
 	UClass* GetClass() const { return ClassPrivate; }
 
 	template <typename T>
-	bool IsA() { return IsA(T::StaticClass()); }
-	bool IsA(const UClass* Class);
+	bool IsA() const { return IsA(T::StaticClass()); }
+	bool IsA(const UClass* const Class) const;
 
 	uint32 GetUUID() const { return ObjectUUID; }
 	void SetUUID(uint32 Uid) { ObjectUUID = Uid; }

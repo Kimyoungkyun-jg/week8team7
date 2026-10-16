@@ -42,6 +42,7 @@ public:
 	// 카메라에서 이 캐스케이드 뒤쪽 경계까지의 거리
 	float SplitFar;
 
+	// 인접 캐스케이드와 블렌딩하는 구간
 	// 앞쪽 경계의 fade 폭
 	float SplitNearFadeRegion;
 
@@ -88,7 +89,7 @@ class FProjectedShadowInitializer
 {
 public:
 
-	// 카메라의 위치에 해당
+	// 라이트를 원점으로 가져오려면 월드를 얼마나 옮겨야 하나?
 	FVector PreShadowTranslation;
 
 	// 카메라의 방향에 해당
@@ -117,6 +118,8 @@ public:
 class FWholeSceneProjectedShadowInitializer : public FProjectedShadowInitializer
 {
 public:
+	// Directional 라이트의 CSM(Cascaded Shadow Maps) 정보.이 그림자가 몇 번째 캐스케이드이고 카메라 깊이 범위 중 어디를 담당하는지 
 	FShadowCascadeSettings CascadeSettings;
+	// 포인트 라이트의 큐브 그림자 6면을 한번에 드로우 할 것인지 여부.
 	bool bOnePassPointLightShadow = false;
 };

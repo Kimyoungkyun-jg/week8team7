@@ -31,10 +31,14 @@ public:
 	FConstantBuffer* GetDeferredConstants() const { return DeferredLightCB.get(); }
 	FForwardLightTileGrid& GetTiles() { return ForwardTileGrid; }
 
+	FTexture2D* GetShadowDepthTexture(uint32 Size);
+
 private:
 	TUniquePtr<FStructuredBuffer> SceneLightBuffer;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
 	FForwardLightTileGrid ForwardTileGrid;
+
+	TUniquePtr<FTexture2D> ShadowDepthTexture;
 	bool bInitialized = false;
 };

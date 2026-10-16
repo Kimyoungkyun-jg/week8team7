@@ -49,7 +49,15 @@ public:
 
 	static const FVector ZeroVector;    // (0, 0, 0)
 	static const FVector OneVector;     // (1, 1, 1)
-
+	static const FVector BackwardVector;
+	static const FVector DownVector;
+	static const FVector ForwardVector;
+	static const FVector LeftVector;
+	static const FVector RightVector;
+	static const FVector UpVector;
+	static const FVector XAxisVector;
+	static const FVector YAxisVector;
+	static const FVector ZAxisVector;
 	// float GetMax();
 	//// float GetMin();
 	// float GetAbsMax();
@@ -118,15 +126,14 @@ public:
 template<typename T>
 std::ostream& operator<<(std::ostream& OS, const FVector& V);
 
-/* constants */
-inline static const FVector BackwardVector = FVector(-1.0f, 0.0f, 0.0f);
-inline static const FVector DownVector = FVector(0.0f, 0.0f, -1.0f);
-inline static const FVector ForwardVector = FVector(1.0f, 0.0f, 0.0f);
-inline static const FVector LeftVector = FVector(0.0f, -1.0f, 0.0f);
-inline static const FVector OneVector = FVector(1.0f, 1.0f, 1.0f);
-inline static const FVector RightVector = FVector(0.0f, 1.0f, 0.0f);
-inline static const FVector UpVector = FVector(0.0f, 0.0f, 1.0f);
-inline static const FVector XAxisVector = FVector(1.0f, 0.0f, 0.0f);
-inline static const FVector YAxisVector = FVector(0.0f, 1.0f, 0.0f);
-inline static const FVector ZAxisVector = FVector(0.0f, 0.0f, 1.0f);
-inline static const FVector ZeroVector = FVector(0.0f, 0.0f, 0.0f);
+inline const FVector FVector::ZeroVector{ 0.f, 0.f, 0.f };
+inline const FVector FVector::OneVector{ 1.f, 1.f, 1.f };
+inline const FVector FVector::BackwardVector = FVector(-1.0f, 0.0f, 0.0f);
+inline const FVector FVector::DownVector = FVector(0.0f, 0.0f, -1.0f);
+inline const FVector FVector::ForwardVector = FVector(1.0f, 0.0f, 0.0f);
+inline const FVector FVector::LeftVector = FVector(0.0f, -1.0f, 0.0f);
+inline const FVector FVector::RightVector = FVector(0.0f, 1.0f, 0.0f);
+inline const FVector FVector::UpVector = FVector(0.0f, 0.0f, 1.0f);
+inline const FVector FVector::XAxisVector = FVector(1.0f, 0.0f, 0.0f);
+inline const FVector FVector::YAxisVector = FVector(0.0f, 1.0f, 0.0f);
+inline const FVector FVector::ZAxisVector = FVector(0.0f, 0.0f, 1.0f);

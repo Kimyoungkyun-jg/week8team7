@@ -73,6 +73,7 @@ enum class EMeshPassType : uint8
 	Forward,
 	Translucent,
 	WorldNormal,
+	CSMShadowDepth,
 };
 
 // CPU에서 프록시/패킷을 패스별 GPU 배치로 변환한다. GPU 명령은 호출하지 않는다.
@@ -81,5 +82,5 @@ class FMeshPassProcessor
 public:
 	bool Build(const FSceneView& View, const FRenderQueue& Queue,
 		const FSceneRenderData* SceneData, EMeshPassType Pass,
-		std::vector<FMeshDrawBatch>& Out, ELightingModel LightingModel = ELightingModel::Gouraud) const;
+		TArray<FMeshDrawBatch>& Out, ELightingModel LightingModel = ELightingModel::Gouraud) const;
 };

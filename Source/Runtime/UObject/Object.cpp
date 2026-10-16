@@ -62,7 +62,7 @@ UClass* UObject::StaticClass()
 	return &c;
 }
 
-bool UObject::IsA(const UClass* Class)
+bool UObject::IsA(const UClass* Class) const
 {
 	const UClass* ThisClass = GetClass();
 	return ThisClass && ThisClass->IsChildOf(Class);

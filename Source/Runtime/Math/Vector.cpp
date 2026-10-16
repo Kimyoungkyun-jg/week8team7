@@ -149,11 +149,6 @@ FVector FVector::GetAbs() const {
 	return FVector(AbsX, AbsY, AbsZ);
 }
 
-const FVector FVector::ZeroVector(0.f, 0.f, 0.f);
-
-const FVector FVector::OneVector(1.f, 1.f, 1.f);
-
-
 /* Operator */
 
 FVector FVector::operator - ()

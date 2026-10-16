@@ -28,8 +28,6 @@ public:
 	float GetOuterConeAngle() const { return OuterConeAngle; }
 	void SetOuterConeAngle(float InAngle) { OuterConeAngle = InAngle; }
 
-	
-
 private:
 	// 원뿔 중심축 기준 반각(도). 
 	float InnerConeAngle = 15.0f;
