@@ -20,6 +20,7 @@ public:
 	virtual ~FLightSceneProxy() = default;
 
 	virtual void GetLightShaderParameters(FLightRenderParameters& OutParameters) const = 0;
+	virtual void GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const = 0;
 
 	const ULightComponent* GetLightComponent() const { return LightComponent; }
 	bool IsVisible() const { return LightComponent ? LightComponent->IsVisible() : false; }
@@ -39,6 +40,7 @@ class FDirectionalLightSceneProxy : public FLightSceneProxy
 public:
 	using FLightSceneProxy::FLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+	void GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const override;
 };
 
 class FLocalLightSceneProxy : public FLightSceneProxy
@@ -52,6 +54,7 @@ class FPointLightSceneProxy : public FLocalLightSceneProxy
 public:
 	using FLocalLightSceneProxy::FLocalLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+	void GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const override;
 };
 
 class FSpotLightSceneProxy : public FLocalLightSceneProxy
@@ -59,6 +62,7 @@ class FSpotLightSceneProxy : public FLocalLightSceneProxy
 public:
 	using FLocalLightSceneProxy::FLocalLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+	void GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const override;
 };
 
 class FRectLightSceneProxy : public FLocalLightSceneProxy
@@ -66,6 +70,7 @@ class FRectLightSceneProxy : public FLocalLightSceneProxy
 public:
 	using FLocalLightSceneProxy::FLocalLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+	void GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const override;
 };
 
 class FAmbientLightSceneProxy

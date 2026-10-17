@@ -41,14 +41,54 @@ bool FSceneLightResources::Init()
 	if (bInitialized) return true;
 	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
+	ShadowCB = RenderCommand::CreateConstantBuffer(sizeof(FShadowViewConstantBuffer));
+
 	if (!ForwardTileGrid.Init())
 		HTR_LOG(Warning, "Forward tile culling compute shader unavailable");
-	bInitialized = ForwardLightCB && DeferredLightCB;
+	bInitialized = ForwardLightCB && DeferredLightCB && ShadowCB;
 	return bInitialized;
 }
 
 bool FSceneLightResources::UploadViewLights(const TArray<FLightRenderParameters>& Lights,
 	uint32 (&Counts)[4], uint32 (&Offsets)[4])
+{
+	// ELightType 순서(방향광, 포인트, 스포트, 렉트)가 곧 버퍼 안의 구간 순서다.
+	constexpr uint32 TypeCount = 4;
+	uint32 TypeCounts[TypeCount] = {};
+	for (const FLightRenderParameters& Light : Lights)
+		if (Light.Type < TypeCount) ++TypeCounts[Light.Type];
+
+	const uint32 DirectionalType = static_cast<uint32>(ELightType::Directional);
+	const uint32 PointType = static_cast<uint32>(ELightType::Point);
+	const uint32 SpotType = static_cast<uint32>(ELightType::Spot);
+	const uint32 RectType = static_cast<uint32>(ELightType::Rect);
+	Counts[0] = TypeCounts[PointType];
+	Counts[1] = TypeCounts[SpotType];
+	Counts[2] = TypeCounts[DirectionalType];
+	Counts[3] = TypeCounts[RectType];
+	Offsets[2] = 0;
+	Offsets[0] = Counts[2];
+	Offsets[1] = Counts[2] + Counts[0];
+	Offsets[3] = Counts[2] + Counts[0] + Counts[1];
+
+	const uint32 Total = Counts[0] + Counts[1] + Counts[2] + Counts[3];
+	if (!Total) return true;
+
+	uint32 Next[TypeCount] = {};
+	Next[DirectionalType] = Offsets[2];
+	Next[PointType] = Offsets[0];
+	Next[SpotType] = Offsets[1];
+	Next[RectType] = Offsets[3];
+
+	TArray<FLightRenderParameters> Packed;
+	Packed.SetNum(static_cast<int32>(Total));
+	for (const FLightRenderParameters& Light : Lights)
+		if (Light.Type < TypeCount) Packed[Next[Light.Type]++] = Light;
+	return UploadStructured(SceneLightBuffer, Packed.GetData(), Total, sizeof(FLightRenderParameters));
+}
+
+bool FSceneLightResources::UploadViewShadows(const TArray<FLightRenderParameters>& Lights,
+	uint32(&Counts)[4], uint32(&Offsets)[4])
 {
 	// ELightType 순서(방향광, 포인트, 스포트, 렉트)가 곧 버퍼 안의 구간 순서다.
 	constexpr uint32 TypeCount = 4;

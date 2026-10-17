@@ -84,3 +84,85 @@ void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out)
 	Out.BarnDoorSin = std::sin(AngleRad);
 	Out.BarnDoorLength = std::max(RectLightComponent->GetBarnDoorLength(), 0.0f);
 }
+
+void FRectLightSceneProxy::GetShadowShaderParameters(FShadowViewData& OutParameters, uint32 Index) const
+{
+}
+
+void FDirectionalLightSceneProxy::GetShadowShaderParameters(FShadowViewData& OutShadowViewData, uint32 Index) const
+{
+	const UDirectionalLightComponent* Dir = static_cast<const UDirectionalLightComponent*>(LightComponent);
+
+	FTransform Transform;
+	Transform.Rotation = Dir->GetWorldRotation();
+
+	const FVector Center = { 0,0,0 };
+	const float Radius = 10000.0f;
+	const float Padding = std::max(10.0f, Radius * 0.1f);
+
+	const FVector CameraPosition = Center - (Transform.GetForward() * (Radius + Padding));
+	const FVector Up = Transform.GetUp();
+
+	const float Width = 2.0f * (Radius + Padding);
+	const float Height = Width;
+	const float NearZ = 0.1f;
+	const float FarZ = 2.0f * Radius + 2.0f * Padding;
+
+	FQuat WorldQuat = Transform.Rotation.Quaternion();
+	FMatrix RotationMatrix = WorldQuat.ToFMatrix();
+	const FMatrix InverseTranslation = FMatrix::MakeTranslation(CameraPosition * -1.0f);
+	FMatrix InverseRotation = RotationMatrix.GetTransposed();
+
+	FMatrix View = InverseTranslation * InverseRotation;
+
+	const float XScale = 2.0f / Width;
+	const float YScale = 2.0f / Height;
+
+	const float ZScale = 1.0f / (FarZ - NearZ);
+	const float ZOffset = -NearZ / (FarZ - NearZ);
+
+	const FMatrix Projection = { 0.0f, 0.0f, ZScale, 0.0f, XScale, 0.0f, 0.0f, 0.0f, 0.0f, YScale, 0.0f, 0.0f, 0.0f, 0.0f, ZOffset, 1.0f };
+
+	OutShadowViewData.LightVP = View * Projection;
+}
+
+void FPointLightSceneProxy::GetShadowShaderParameters(FShadowViewData& OutShadowViewData, uint32 Index) const
+{
+	const auto* PointLightComponent = static_cast<const UPointLightComponent*>(LightComponent);
+
+}
+
+void FSpotLightSceneProxy::GetShadowShaderParameters(FShadowViewData& OutShadowViewData, uint32 Index) const
+{
+	const auto* SpotLightComponent = static_cast<const USpotLightComponent*>(LightComponent);
+	const FLinearColor Color(SpotLightComponent->GetLightColor());
+
+	FTransform Transform;
+	Transform.Rotation = SpotLightComponent->GetWorldRotation();
+
+	const float Outer = FMath::Clamp(SpotLightComponent->GetOuterConeAngle(), 0.0f, 89.0f);
+	const float Inner = FMath::Clamp(SpotLightComponent->GetInnerConeAngle(), 0.0f, Outer);
+
+	float Radius = SpotLightComponent->GetAttenuationRadius();
+
+	const FVector Up = Transform.GetUp();
+
+	FQuat WorldQuat = Transform.Rotation.Quaternion();
+	FMatrix RotationMatrix = WorldQuat.ToFMatrix();
+	const FMatrix InverseTranslation = FMatrix::MakeTranslation(SpotLightComponent->GetWorldLocation() * -1.0f);
+	FMatrix InverseRotation = RotationMatrix.GetTransposed();
+
+	FMatrix View = InverseTranslation * InverseRotation;
+
+	const float HalfFOV = FMath::DegreesToRadians(Outer);
+
+	const float YScale = 1.0f / tan(HalfFOV);
+	const float XScale = YScale / 1;
+
+	const float ZScale = Radius / (Radius - 0.1f);
+	const float ZOffset = -0.1f * Radius / (Radius - 0.1f);
+
+	const FMatrix Projection = { 0.0f, 0.0f, ZScale, 1.0f, XScale, 0.0f, 0.0f, 0.0f, 0.0f, YScale, 0.0f, 0.0f, 0.0f, 0.0f, ZOffset, 0.0f };
+
+	OutShadowViewData.LightVP = View * Projection;
+}

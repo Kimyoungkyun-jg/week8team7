@@ -13,6 +13,8 @@
     #error Exactly one lighting model or view mode must be enabled.
 #endif
 
+#define MAX_SHADOW_VIEWS 16
+
 struct FAmbientLightInfo
 {
     float4 ColorIntensity; // rgb: 선형 색상, a: 광도
@@ -40,6 +42,7 @@ StructuredBuffer<uint4> TileLightRanges : register(t9);
 StructuredBuffer<uint> TilePointIndices : register(t10);
 StructuredBuffer<uint> TileSpotIndices : register(t12);
 TextureCube<float4> SkyIrradiance : register(t11);
+Texture2D<float> ShadowAtlas : register(t13);
 SamplerState SkySampler : register(s1);
 
 cbuffer MaterialParams : register(b2)
@@ -49,6 +52,21 @@ cbuffer MaterialParams : register(b2)
     float4 SurfaceParams; // x: 노멀맵 Y 반전, y: 예약, z: 컬러 텍스처 사용, w: 노멀맵 인코딩
     float4 UVTransform; // xy: 이동량, zw: 배율
     float4 SpecularColorShininess; // rgb: 정반사 색상, w: 광택 지수
+};
+
+struct FShadowViewGPUData
+{
+    row_major float4x4 LightVP;
+    float4 AtlasScaleBias;
+    float2 ShadowParams;
+    float2 Padding;
+};
+
+cbuffer Shadows : register(b4)
+{
+    FShadowViewGPUData ShadowViews[MAX_SHADOW_VIEWS];
+    uint ShadowViewCount;
+    uint3 Padding;
 };
 
 Texture2D ColorTexture : register(t0);
@@ -86,6 +104,45 @@ struct FUberOutput
     float4 NormalRoughness : SV_Target1;
 #endif
 };
+
+float CalculateShadowVisibility(float3 WorldPosition, float3 WorldNormal, float3 LightDirection, uint ShadowViewIndex)
+{
+    if (ShadowViewIndex >= ShadowViewCount)
+    {
+        return 1.0;
+    }
+    
+    FShadowViewGPUData ShadowView = ShadowViews[ShadowViewIndex];
+    
+    float4 LightClipPosition = mul(float4(WorldPosition, 1.0f), ShadowView.LightVP);
+
+    
+    float3 NDC = LightClipPosition.xyz / LightClipPosition.w;
+    if (NDC.z < 0.0f || NDC.z > 1.0f || abs(NDC.x) > 1.0f || abs(NDC.y) > 1.0f)
+    {
+        return 1.0f;
+    }
+    
+    float2 LocalUV = float2(NDC.x * 0.5f + 0.5f, 0.5f - NDC.y * 0.5f);
+    
+    float2 AtlasScale = ShadowView.AtlasScaleBias.xy;
+    float2 AtlasBias = ShadowView.AtlasScaleBias.zw;
+    float2 AtlasUV = LocalUV * AtlasScale + AtlasBias;
+    
+    const float AtlasInvSize = 1.0f / 2048.0f;
+    
+    float2 MinUV = AtlasBias + AtlasInvSize * 0.5f;
+    float2 MaxUV = AtlasBias + AtlasScale - AtlasInvSize * 0.5f;
+    
+    AtlasUV = clamp(AtlasUV, MinUV, MaxUV);
+    
+    float NdotL = saturate(dot(normalize(WorldNormal), normalize(LightDirection)));
+    float Bias = max(ShadowView.ShadowParams.x, ShadowView.ShadowParams.y * (1.0f - NdotL));
+    
+    float StoredDepth = ShadowAtlas.SampleLevel(SkySampler, AtlasUV, 0).r;
+    
+    return (NDC.z - Bias > StoredDepth) ? 0.0f : 1.0f;
+}
 
 float3 DecodeMapNormal(float3 Sample, float Encoding)
 {
@@ -143,13 +200,19 @@ void AddLight(inout FLightResult Result, float3 N, float3 V, float3 L,
         SpecularColorShininess.w, bIncludeSpecular);
 }
 
-void CalculateDirectionalLight(inout FLightResult Result, FLightRenderParameters Info, float3 N, float3 V,
+void CalculateDirectionalLight(inout FLightResult Result, FLightRenderParameters Info, float3 P, float3 N, float3 V,
     bool bIncludeSpecular)
 {
     if (Info.Intensity <= 0.0f)
         return;
     float3 L = normalize(-Info.Direction);
     float3 Radiance = Info.Color * Info.Intensity;
+    if (Info.ShadowViewBaseIndex >= 0 && Info.ShadowViewCount > 0)
+    {
+        float Visibility = CalculateShadowVisibility(P, N, L, (uint) Info.ShadowViewBaseIndex);
+        
+        Radiance *= Visibility;
+    }
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
@@ -184,7 +247,12 @@ void CalculateSpotLight(inout FLightResult Result, FLightRenderParameters Info,
 
 	float3 Radiance = Info.Color * max(Info.Intensity, 0.0f)
 		* ConeFade * RadiusFade;
-
+    if (Info.ShadowViewBaseIndex >= 0 && Info.ShadowViewCount > 0)
+    {
+        float Visibility = CalculateShadowVisibility(P, N, L, (uint) Info.ShadowViewBaseIndex);
+        
+        Radiance *= Visibility;
+    }
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
@@ -242,7 +310,7 @@ void CalculateRectLight(inout FLightResult Result, FLightRenderParameters Info,
 	AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
-FLightResult CalculateBaseLighting(float3 N, float3 V, bool bIncludeSpecular)
+FLightResult CalculateBaseLighting(float3 P, float3 N, float3 V, bool bIncludeSpecular)
 {
     FLightResult Result;
     Result.Diffuse = CalculateAmbientLight(Ambient) + CalculateSkyLight(N);
@@ -250,7 +318,7 @@ FLightResult CalculateBaseLighting(float3 N, float3 V, bool bIncludeSpecular)
 
     [loop]
     for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
-        CalculateDirectionalLight(Result, SceneLights[LightOffsets.z + DirectionalIndex], N, V, bIncludeSpecular);
+        CalculateDirectionalLight(Result, SceneLights[LightOffsets.z + DirectionalIndex], P, N, V, bIncludeSpecular);
     return Result;
 }
 
@@ -273,7 +341,7 @@ FLightResult CalculateLighting(float3 P, float3 Normal, bool bIncludeSpecular)
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
-    FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
+    FLightResult Result = CalculateBaseLighting(P, N, V, bIncludeSpecular);
     AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
     return Result;
 }
@@ -285,7 +353,7 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P,
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
-    FLightResult Result = CalculateBaseLighting(N, V, bIncludeSpecular);
+    FLightResult Result = CalculateBaseLighting(P, N, V, bIncludeSpecular);
 
     if (GridMode == LIGHT_GRID_MODE_OFF)
     {

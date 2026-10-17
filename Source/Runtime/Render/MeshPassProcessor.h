@@ -49,7 +49,7 @@ struct FMeshDrawBatch
 	bool bUseObjectSlots = true;
 	bool bBindViewConstants = true;
 	bool bForceWireframe = false;
-	std::vector<FItem> Items;
+	TArray<FItem> Items;
 };
 
 struct FOcclusionMeasureResult
@@ -82,4 +82,6 @@ public:
 	bool Build(const FSceneView& View, const FRenderQueue& Queue,
 		const FSceneRenderData* SceneData, EMeshPassType Pass,
 		std::vector<FMeshDrawBatch>& Out, ELightingModel LightingModel = ELightingModel::Gouraud) const;
+
+	bool Build(const TArray<FPrimitiveSceneProxy*>& ShadowMeshes, TArray<FMeshDrawBatch>& OutBatches);
 };

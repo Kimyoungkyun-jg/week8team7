@@ -25,16 +25,21 @@ public:
 	// Counts/Offsets 순서는 x: 포인트, y: 스포트, z: 방향광, w: 렉트다.
 	bool UploadViewLights(const TArray<FLightRenderParameters>& Lights,
 		uint32 (&Counts)[4], uint32 (&Offsets)[4]);
+	bool UploadViewShadows(const TArray<FLightRenderParameters>& Lights,
+		uint32(&Counts)[4], uint32(&Offsets)[4]);
 
 	FStructuredBuffer* GetSceneLights() const { return SceneLightBuffer.get(); }
 	FConstantBuffer* GetForwardConstants() const { return ForwardLightCB.get(); }
 	FConstantBuffer* GetDeferredConstants() const { return DeferredLightCB.get(); }
+	FConstantBuffer* GetShadowConstants() const { return ShadowCB.get(); }
 	FForwardLightTileGrid& GetTiles() { return ForwardTileGrid; }
 
 private:
 	TUniquePtr<FStructuredBuffer> SceneLightBuffer;
+	TUniquePtr<FConstantBuffer> ShadowCB;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+
 	FForwardLightTileGrid ForwardTileGrid;
 	bool bInitialized = false;
 };

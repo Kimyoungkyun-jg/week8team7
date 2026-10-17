@@ -175,9 +175,9 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 			FMeshDrawBatch Batch; // Render에게 전달하는 최종 구조체
 			if (!BuildBatch(Batch, Group->Mesh, Group->LODIndex, Group->Material, Pass, View, LightingModel))
 				return false;
-			Batch.Items.reserve(Group->Items.size());
+			Batch.Items.Reserve(Group->Items.size());
 			for (const FStaticDrawItem& Item : Group->Items)
-				Batch.Items.push_back(BuildItem(Item.Proxy->GetLocalToWorld(), View, Pass, Item.Slot,
+				Batch.Items.Add(BuildItem(Item.Proxy->GetLocalToWorld(), View, Pass, Item.Slot,
 					Item.StartIndex, Item.IndexCount, Item.Proxy, Item.bOccludedByGpu != 0));
 			Out.push_back(std::move(Batch));
 		}
@@ -197,9 +197,68 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		const uint32 IndexCount = Packet.IndexCount ? Packet.IndexCount : Batch.IndexBuffer->GetIndexCount();
 		const void* ObjectKey = Packet.Proxy ? static_cast<const void*>(Packet.Proxy) : static_cast<const void*>(&Packet);
 		
-		Batch.Items.push_back(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
+		Batch.Items.Add(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
 			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu));
 		Out.push_back(std::move(Batch));
 	}
+	return true;
+}
+
+bool FMeshPassProcessor::Build(const TArray<FPrimitiveSceneProxy*>& ShadowMeshes, TArray<FMeshDrawBatch>& OutBatches)
+{
+	OutBatches.Reset();
+
+	const FPipelineState* Pipeline =
+		FRenderResourceManager::GetPSO(EPSOType::StaticMesh_DepthOnly);
+
+	if (!Pipeline || !Pipeline->Shader || !Pipeline->Shader->VertexShader)
+		return false;
+
+	for (FPrimitiveSceneProxy* Proxy : ShadowMeshes)
+	{
+		if (!Proxy || !Proxy->GetRenderState()) continue;
+
+		UStaticMesh* Mesh = Proxy->GetMesh();
+		if (!Mesh || Proxy->GetLODCount() == 0) continue;
+
+		// 우선 LOD 0 사용
+		constexpr uint8 LOD = 0;
+		const FCachedMeshLOD& CachedLOD = Proxy->GetLOD(LOD);
+
+		FMeshDrawBatch Batch{};
+		Batch.Pipeline = *Pipeline;
+		Batch.VertexBuffer = Mesh->GetVertexBuffer(LOD);
+		Batch.IndexBuffer = Mesh->GetIndexBuffer(LOD);
+		Batch.bUseObjectSlots = false;
+		Batch.bBindViewConstants = true;
+		Batch.ObjectBindingSlot = 2;
+		Batch.ObjectStages = EShaderBindFlagBits::Vertex;
+
+		if (!Batch.VertexBuffer || !Batch.IndexBuffer)
+			return false;
+
+		for (uint32 Index = 0; Index < CachedLOD.NumSections; ++Index)
+		{
+			const FCachedMeshSection& Section =
+				Proxy->GetSection(CachedLOD.FirstSection + Index);
+
+			if (Section.IndexCount == 0) continue;
+
+			FMeshDrawBatch::FItem Item{};
+			Item.StartIndex = Section.StartIndex;
+			Item.IndexCount = Section.IndexCount;
+			Item.ObjectKey = Proxy;
+
+			const FMatrix& World = Proxy->GetLocalToWorld();
+			std::memcpy(Item.ObjectData.data(), &World, sizeof(World));
+			Item.ObjectDataSize = sizeof(World);
+
+			Batch.Items.Add(std::move(Item));
+		}
+
+		if (!Batch.Items.IsEmpty())
+			OutBatches.Add(std::move(Batch));
+	}
+
 	return true;
 }

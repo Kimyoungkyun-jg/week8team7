@@ -44,7 +44,7 @@ namespace
 
 // 생성자
 FSceneRenderer::FSceneRenderer(UWorld* InWorld, const FSceneView& InView, FSceneRenderData& InRenderData)
-	: World(InWorld), View(InView), RenderData(InRenderData)
+	: World(InWorld), View(InView), RenderData(InRenderData), ShadowRenderData()
 {
 	CachedViewContext = View.ToViewContext();
 }
@@ -78,7 +78,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 	}
 
 	// 월드 프리미티브 수집 및 절두체 컬링
-	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, &View.Frustum, Renderer);
+	GatherRenderPackets(World->GetScene(), RenderData, CachedViewContext, true, &View.Frustum, Renderer);
 	RenderData.AmbientLight = World->GetScene().GetSkyAmbientLight(View.bGameView);
 
 	// 렌더 큐 자체 정렬
@@ -86,11 +86,25 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 
 	// 모든 프록시가 같은 FLightRenderParameters를 채우고, 종류는 Type으로만 구분한다.
 	const FScene& Scene = World->GetScene();
+	uint32 LightIndex = 0;
 	for (const FDirectionalLightSceneProxy* Light : Scene.GetDirectionalLights())
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
 		FLightRenderParameters Parameters{};
+		FShadowViewData ShadowView{};
+		const uint32 RequiredCount = GetRequiredShadowViewCount(Light->GetLightComponent()->GetLightType());
+
 		Light->GetLightShaderParameters(Parameters);
+		Light->GetShadowShaderParameters(ShadowView, 0);
+		Parameters.ShadowViewBaseIndex = static_cast<int32>(RenderData.ShadowViewData.Num());
+		Parameters.ShadowViewCount = RequiredCount;
+		const uint32 Slot = static_cast<uint32>(Parameters.ShadowViewBaseIndex);
+
+		ShadowView.LightIndex = LightIndex++;
+		ShadowView.FaceIndex = 0;
+		ShadowView.AtlasRect = GetShadowAtlasRect(Slot);
+
+		RenderData.ShadowViewData.Add(ShadowView);
 		RenderData.VisibleLights.Add(Parameters);
 	}
 
@@ -98,12 +112,36 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 	{
 		if (!Light->IsEnabled() || !Light->IsShown(View.bGameView)) continue;
 		FLightRenderParameters Parameters{};
+		FShadowViewData ShadowView{};
+		const uint32 RequiredCount = GetRequiredShadowViewCount(Light->GetLightComponent()->GetLightType());
 		Light->GetLightShaderParameters(Parameters);
+		ShadowView.LightIndex = LightIndex;
+		for (uint32 FaceIndex = 0; FaceIndex < RequiredCount; ++FaceIndex)
+		{
+			Light->GetShadowShaderParameters(ShadowView, FaceIndex);
+
+			Parameters.ShadowViewBaseIndex = static_cast<int32>(RenderData.ShadowViewData.Num());
+			Parameters.ShadowViewCount = RequiredCount;
+
+			const uint32 Slot = static_cast<uint32>(Parameters.ShadowViewBaseIndex) + FaceIndex;
+
+			LightIndex++;
+			ShadowView.FaceIndex = FaceIndex;
+			ShadowView.AtlasRect = GetShadowAtlasRect(Slot);
+			RenderData.ShadowViewData.Add(ShadowView);
+		}
 		RenderData.VisibleLights.Add(Parameters);
+	}
+
+	if (RenderData.ShadowViewData.Num() > 0)
+	{
+		GatherRenderPackets(World->GetScene(), ShadowRenderData, CachedViewContext, false, nullptr, Renderer);
+		ShadowRenderData.RenderQueue.Sort();
 	}
 
 	if (RenderData.ViewLightResources.Init())
 		bLightUploadSucceeded = RenderData.ViewLightResources.UploadViewLights(RenderData.VisibleLights, LightCounts, LightOffsets);
+	RenderData.ViewLightResources.UploadViewShadows(RenderData.VisibleLights, LightCounts, LightOffsets);
 }
 
 bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height)
@@ -158,19 +196,59 @@ bool FSceneRenderer::BindForwardLighting(FRenderer* Renderer, const FSceneRender
 	Renderer->BindConstant(1, LightResources.GetForwardConstants(), EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->BindCube(11, Sky ? Sky->GetIrradianceCube() : nullptr, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	Renderer->BindSampler(1, ESamplerState::LinearClamp, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
-	
+	Renderer->BindSampler(2, ESamplerState::PointClamp, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
+
 	FForwardLightTileGrid& Tiles = LightResources.GetTiles();
 	Tiles.PreparePixelShader(Renderer, bTilesBuilt);
 	Renderer->BindPixelConstant(3, Tiles.GetPixelConstants());
 	const std::array<ID3D11ShaderResourceView*, 3> TileSRVs = Tiles.GetPixelResources();
 	Renderer->BindRawPixelResources(9, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data(), 2));
 	Renderer->BindRawPixelResources(12, std::span<ID3D11ShaderResourceView* const>(TileSRVs.data() + 2, 1));
-	
+	BindShadowConstants(Renderer);
 	Renderer->BindStructured(8, (LightCounts[0] || LightCounts[1] || LightCounts[2] || LightCounts[3]) &&
 		LightResources.GetSceneLights() && LightResources.GetSceneLights()->GetSRV()
 		? LightResources.GetSceneLights() : nullptr,
 		EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 	return true;
+}
+
+void FSceneRenderer::BindShadowConstants(FRenderer* Renderer)
+{
+	assert(Renderer != nullptr);
+
+	FShadowViewConstantBuffer Constants{};
+
+	constexpr uint32 MaxShadowViews = 16;
+
+	const uint32 ViewCount = static_cast<uint32>(RenderData.ShadowViewData.Num());
+
+	assert(ViewCount <= MaxShadowViews);
+
+	Constants.ViewCount = ViewCount <= MaxShadowViews ? ViewCount : MaxShadowViews;
+
+	const float AtlasSize = static_cast<float>(ShadowAtlasResolution);
+
+	for (uint32 Index = 0; Index < Constants.ViewCount; ++Index)
+	{
+		const FShadowViewData& Source = RenderData.ShadowViewData[Index];
+
+		FShadowViewGPUData& Dest = Constants.Views[Index];
+
+		Dest.LightVP = Source.LightVP;
+
+		Dest.AtlasScaleBias = FVector4(Source.AtlasRect.Width / AtlasSize, Source.AtlasRect.Height / AtlasSize,
+			Source.AtlasRect.X / AtlasSize, Source.AtlasRect.Y / AtlasSize);
+
+		Dest.ShadowParams = FVector2(Source.ConstantBias, Source.SlopeBias);
+	}
+
+	FConstantBuffer* ShadowBuffer = RenderData.ViewLightResources.GetShadowConstants();
+
+	assert(ShadowBuffer != nullptr);
+
+	Renderer->UpdateConstant(ShadowBuffer, &Constants, sizeof(Constants));
+
+	Renderer->BindConstant(4, ShadowBuffer, EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel);
 }
 
 void FSceneRenderer::UnbindForwardLighting(FRenderer* Renderer)
@@ -267,6 +345,14 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (bCorePassSucceeded && Skybox)
 				Skybox->OnRender(View.ViewProjectionMatrix, View.ViewLocation);
 		})) return false;
+
+	const FRenderGraphTextureDesc ShadowDesc{ ShadowAtlasResolution, ShadowAtlasResolution,  DXGI_FORMAT_R24G8_TYPELESS, D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE };
+	const FRenderGraphTextureRef ShadowAtlas = Graph.CreateTexture(ShadowDesc, "ShadowAtlas");
+
+	if (!AddShadowDepthPasses(Graph, Renderer, ShadowAtlas, Options))
+	{
+		return false;
+	}
 
 	if (Options.RenderingPath == ERenderingPath::Deferred) // Deferred rendering
 	{
@@ -404,11 +490,14 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 		}
 		FRenderGraphRasterPassDesc Forward{};
 		Forward.Name = "ForwardOpaque";
+		Forward.ReadTextures = { ShadowAtlas };
 		Forward.ColorAttachments = {
 			{ LightingHDR, ERenderGraphLoadAction::Load }
 		};
 		Forward.DepthAttachment = { Depth, bUseDepthPrepass ? ERenderGraphLoadAction::Load : ERenderGraphLoadAction::Clear, 1.0f, 0 };
-		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, LightingOptions = Options, bUseDepthPrepass]
+		//Renderer->UploadViewMatrix(View.ViewProjectionMatrix);
+		RenderCommand::SetViewport(0, 0, Width, Height);
+		if (!Graph.AddRasterPass(std::move(Forward), [this, Renderer, &Graph, ShadowAtlas, LightingOptions = Options, bUseDepthPrepass]
 			{
 				if (!LightingOptions.bDrawPrimitives) return;
 				if (!bUseDepthPrepass) PrepareDrawData(Renderer, RenderData);
@@ -417,7 +506,17 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 				if (bUseDepthPrepass)
 					for (FMeshDrawBatch& Batch : ForwardBatches)
 						Batch.Pipeline.DepthStencilState = EDepthStencilState::PrepassReadOnly;
+				FTexture2D* ShadowTexture = Graph.Resolve(ShadowAtlas);
+				if (!ShadowTexture || !ShadowTexture->GetSRV())
+				{
+					bCorePassSucceeded = false;
+					return;
+				}
+
+				const std::array<ID3D11ShaderResourceView*, 1> ShadowSRVs = { ShadowTexture->GetSRV() };
+				Renderer->BindRawPixelResources(13, std::span<ID3D11ShaderResourceView* const>(ShadowSRVs.data(), ShadowSRVs.size()));
 				Renderer->DrawMeshes(ForwardBatches);
+				Renderer->UnbindResources(13, 1, EShaderBindFlagBits::Pixel);
 				UnbindForwardLighting(Renderer);
 			})) return false;
 	}
@@ -554,6 +653,69 @@ bool FSceneRenderer::AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Re
 	return true;
 }
 
+bool FSceneRenderer::AddShadowDepthPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FRenderGraphTextureRef ShadowAtlas, const FSceneRenderOptions& Options)
+{
+	if (!Renderer || !ShadowAtlas)
+	{
+		return false;
+	}
+
+	if (!Options.bDrawPrimitives || RenderData.ShadowViewData.Num() == 0)
+	{
+		return true;
+	}
+
+	FPipelineState* DepthPipeline = FRenderResourceManager::GetPSO(EPSOType::StaticMesh_DepthOnly);
+	if (!DepthPipeline || !DepthPipeline->Shader || !DepthPipeline->Shader->PixelShader)
+	{
+		return false;
+	}
+	
+	FRenderGraphRasterPassDesc ShadowPass{};
+	ShadowPass.Name = "ShadowDepth_";
+	ShadowPass.DepthAttachment = { ShadowAtlas, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+
+	PrepareDrawData(Renderer, ShadowRenderData);
+
+	if (!Graph.AddRasterPass(std::move(ShadowPass), [this, Renderer, DepthPipeline]()
+		{
+			FMeshPassProcessor Processor;
+
+			TArray<FMeshDrawBatch> Batched;
+			if (!Processor.Build(RenderData.VisibleProxies, Batched))
+			{
+				return false;
+			}
+
+			for (int32 ViewIndex = 0; ViewIndex < RenderData.ShadowViewData.Num(); ++ViewIndex)
+			{
+				const FShadowViewData ShadowView = RenderData.ShadowViewData[ViewIndex];
+
+				if (ShadowView.AtlasRect.Width <= 0 || ShadowView.AtlasRect.Height <= 0)
+				{
+					return false;
+				}
+
+				Renderer->UploadViewMatrix(ShadowView.LightVP);
+
+				RenderCommand::SetViewport(static_cast<uint32>(ShadowView.AtlasRect.X), static_cast<uint32>(ShadowView.AtlasRect.Y), static_cast<uint32>(ShadowView.AtlasRect.Width), static_cast<uint32>(ShadowView.AtlasRect.Height));
+
+				if (Batched.IsEmpty())
+				{
+					return false;
+				}
+
+				Renderer->DrawMeshes(Batched);
+			}
+		}))
+	{
+		return false;
+	}
+
+
+	return true;
+}
+
 
 // 반투명 렌더링
 void FSceneRenderer::RenderTranslucent(FRenderer* Renderer, FConstantBuffer* FogConstants)
@@ -577,7 +739,7 @@ void FSceneRenderer::RenderTranslucent(FRenderer* Renderer, FConstantBuffer* Fog
 }
 
 void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
-	const FViewContext& View, const FFrustumPlanes* Frustum, FRenderer* Renderer) //여기서 꼭 renderer를 매개변수로 받아야 할까?
+	const FViewContext& View, bool bRunGPUOcclusion, const FFrustumPlanes* Frustum, FRenderer* Renderer) //여기서 꼭 renderer를 매개변수로 받아야 할까?
 {
 	Data.ResetFrame();
 	FRenderQueue& RenderQueue = Data.RenderQueue;
@@ -618,7 +780,7 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 	// Cull이 켜져 있으면 가려진 물체를 목록에서 빼서 이후 Gather·정렬·드로우를 모두 건너뛴다.
 	// 꺼져 있으면(검증 모드) 목록은 그대로 두고 패킷에 판정만 표시한다.
 	const uint8* OccludedMask = nullptr;
-	if (Renderer && Renderer->GetGPUOcclusion().GetSettings().bEnabled)
+	if (bRunGPUOcclusion && Renderer && Renderer->GetGPUOcclusion().GetSettings().bEnabled)
 	{
 		FGPUOcclusion& Occlusion = Renderer->GetGPUOcclusion();
 		if (Occlusion.Run(VisibleProxies.GetData(), VisibleProxies.Num(), View))

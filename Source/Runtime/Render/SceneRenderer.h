@@ -55,13 +55,15 @@ public:
 
 	// 뷰 결과를 하나 유지하는 벤치마크에서도 사용한다.
 	static void GatherRenderPackets(FScene& Scene, FSceneRenderData& Data, const FViewContext& View,
-		const FFrustumPlanes* Frustum = nullptr, FRenderer* Renderer = nullptr);
+		bool bRunGPUOcclusion, const FFrustumPlanes* Frustum = nullptr, FRenderer* Renderer = nullptr);
 	static void PrepareDrawData(FRenderer* Renderer, const FSceneRenderData& Data);
 	const FRenderStats& GetRenderStats() const { return RenderData.RenderStats; }
 
 	// 한 뷰의 모든 패스를 정해진 순서로 등록한다.
 	bool AddViewportPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,
 		const FSceneRenderOptions& Options, FSkyboxRenderer* Skybox, const FScenePassCallbacks& Callbacks);
+	bool AddShadowDepthPasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FRenderGraphTextureRef ShadowAtlas, const FSceneRenderOptions& Options);
+
 	bool DidCorePassSucceed() const { return bCorePassSucceeded; }
 	bool DidFXAAPassSucceed() const { return bFXAAPassSucceeded; }
 
@@ -82,17 +84,21 @@ private:
 		const FSceneRenderOptions& Options);
 	bool BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height);
 	bool BindForwardLighting(FRenderer* Renderer, const FSceneRenderOptions& Options);
+	void BindShadowConstants(FRenderer* Renderer);
 	void UnbindForwardLighting(FRenderer* Renderer);
 	bool IntersectSphereFrustum(const FVector4& PositionRadius, const FPlane (&Planes)[6]) const;
 
 	UWorld* World = nullptr;
 	FSceneView View;
 	FSceneRenderData& RenderData;
+	FSceneRenderData ShadowRenderData;
+
 	uint32 LightCounts[4]{};
 	uint32 LightOffsets[4]{};
 	bool bLightUploadSucceeded = false;
 	bool bTilesBuilt = false;
 	std::vector<FMeshDrawBatch> ForwardBatches;
+	std::vector<FMeshDrawBatch> ShadowDepthBatches;
 	FViewContext CachedViewContext;
 	bool bCorePassSucceeded = true;
 	bool bFXAAPassSucceeded = true;

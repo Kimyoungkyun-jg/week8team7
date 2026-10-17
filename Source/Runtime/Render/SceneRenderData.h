@@ -50,7 +50,8 @@ struct FSceneRenderData
 	FSkyLightRenderData SkyLight{};
 	bool bHasSkyLight = false;
 	TArray<FLightRenderParameters> VisibleLights; // 모든 종류의 광원. 업로드할 때 종류별 구간으로 정렬한다
-
+	TArray<FShadowViewData> ShadowViewData;
+	
 	void ResetScene()
 	{
 		ResetFrame();
@@ -73,6 +74,7 @@ struct FSceneRenderData
 		SkyLight = {};
 		bHasSkyLight = false;
 		VisibleLights.Reset();
+		ShadowViewData.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Packets.Reset();
