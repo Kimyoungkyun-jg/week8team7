@@ -35,6 +35,20 @@ void AccumulateLight(inout FLightResult Result, float3 N, float3 V, float3 L,
     }
 }
 
+float3 GetCascadeDebugColor(float ViewDepth)
+{
+    if (ViewDepth < 10.0f)
+        return float3(1.0f, 0.0f, 0.0f); // Cascade 0: 빨강
+
+    if (ViewDepth < 30.0f)
+        return float3(0.0f, 1.0f, 0.0f); // Cascade 1: 초록
+
+    if (ViewDepth < 100.0f)
+        return float3(0.0f, 0.0f, 1.0f); // Cascade 2: 파랑
+
+    return float3(1.0f, 1.0f, 0.0f); // Cascade 3: 노랑
+}
+
 float CalculateShadow(float3 P, float4x4 VP, float4 AtlasRect, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, uint AtlasIndex, SamplerState Sampler)
 {
     float Shadow = 1.0;

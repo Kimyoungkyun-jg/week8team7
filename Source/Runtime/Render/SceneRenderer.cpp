@@ -104,7 +104,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 		RenderData.VisibleLights.Add(Parameters);
 	}
 
-	RenderData.Commit(bLightUploadSucceeded);
+	RenderData.Commit(View, bLightUploadSucceeded);
 }
 
 bool FSceneRenderer::BindDeferredLighting(FRenderer* Renderer, uint32 Width, uint32 Height)

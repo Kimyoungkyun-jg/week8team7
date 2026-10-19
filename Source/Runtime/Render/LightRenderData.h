@@ -68,6 +68,10 @@ struct FLightShadowRenderData
 	FMatrix ViewProjection;
 	FRect AtlasRect;
 	uint32 AtlasIndex;
+
+	float CascadeFarDepth = 0.0f;
+
+	uint32 Padding[2]{};
 };
 
 static_assert(sizeof(FVector4) == 16);

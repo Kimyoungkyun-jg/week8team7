@@ -127,13 +127,34 @@ float4 mainPS(FPSInput Input) : SV_Target
         uint LightIndex = LightOffsets.z + DirectionalIndex;
         FLightRenderParameters Light = SceneLights[LightIndex];
         
-        if (Light.Intensity <= 0.0f) continue;
+        if (Light.Intensity <= 0.0f)
+            continue;
         
         float3 LightDir = normalize(Light.Direction);
         float3 LightColor = Light.Color * Light.Intensity;
                 
-        FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.z + DirectionalIndex];
-        float Shadow = CalculateShadow(WorldPosition, LightShadow.ViewProjection, LightShadow.AtlasRect, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, LightShadow.AtlasIndex, SkySampler);
+        // 카메라 전방 방향으로 측정한 현재 픽셀의 깊이.
+        float ViewDepth = dot(WorldPosition - CameraPosition.xyz, CameraForward.xyz);
+
+        const uint DirectionalShadowBase = LightShadowOffsets.z + DirectionalIndex * DIRECTIONAL_CASCADE_COUNT;
+
+        uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1;
+
+        [unroll]
+        for (uint CandidateIndex = 0; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
+        {
+            FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
+
+            if (ViewDepth <= CandidateShadow.CascadeFarDepth)
+            {
+                CascadeIndex = CandidateIndex;
+                break;
+            }
+        }
+
+        FLightShadowRenderData LightShadow = LightShadows[DirectionalShadowBase + CascadeIndex];
+
+        float Shadow = CalculateShadow( WorldPosition, LightShadow.ViewProjection,  LightShadow.AtlasRect, LightShadowAtlas,  ShadowAtlasWidth, ShadowAtlasHeight,LightShadow.AtlasIndex, SkySampler);
 
         BaseLighting += LightColor * saturate(dot(N, -LightDir)) * Shadow;
     }

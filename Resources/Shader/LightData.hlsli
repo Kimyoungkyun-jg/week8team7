@@ -9,6 +9,7 @@
 #define LIGHT_TYPE_POINT 1
 #define LIGHT_TYPE_SPOT  2
 #define LIGHT_TYPE_RECT  3
+#define DIRECTIONAL_CASCADE_COUNT 4
 
 struct FLightRenderParameters
 {
@@ -35,6 +36,9 @@ struct FLightShadowRenderData
     row_major float4x4 ViewProjection;
     float4 AtlasRect;
     uint AtlasIndex;
+
+    float CascadeFarDepth;
+    uint2 Padding;
 };
 
 #endif

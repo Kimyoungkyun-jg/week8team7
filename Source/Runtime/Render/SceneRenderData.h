@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <iterator>
 #include <vector>
+#include "Render/SceneView.h"
 
 struct FRenderStats
 {
@@ -32,7 +33,8 @@ struct FSceneRenderData
 	static constexpr int32 RectLightSlotIndex = 3;
 	
 	static constexpr uint32 ShadowMapSize = 4096;
-	static constexpr uint32 DirectionalLightShadowMapSize = 1024;
+	static constexpr uint32 DirectionalCascadeCount = 4;
+	static constexpr uint32 DirectionalLightShadowMapSize = 2048;
 	static constexpr uint32 PointLightShadowMapSize = 1024;
 	static constexpr uint32 SpotLightShadowMapSize = 512;
 
@@ -67,6 +69,7 @@ struct FSceneRenderData
 
 	TArray<FLightShadowRenderData> LightShadows;
 	uint32 LightShadowOffsets[4];
+	float DirectionalCascadeSplits[DirectionalCascadeCount] = {};
 
 	void ResetScene()
 	{
@@ -91,6 +94,7 @@ struct FSceneRenderData
 		bHasSkyLight = false;
 		VisibleLights.Reset();
 		LightShadows.Reset();
+		std::fill(std::begin(DirectionalCascadeSplits), std::end(DirectionalCascadeSplits), 0.0f);
 		std::memset(LightParameterOffsets, 0, sizeof(LightParameterOffsets));
 		std::memset(LightParameterCounts, 0, sizeof(LightParameterCounts));
 
@@ -105,7 +109,7 @@ struct FSceneRenderData
 		}
 	}
 
-	void Commit(bool& bLightUpaloadSucceeded)
+	void Commit(const FSceneView& View, bool& bLightUpaloadSucceeded)
 	{
 		RenderQueue.Sort();
 
@@ -221,26 +225,152 @@ struct FSceneRenderData
 				ShadowMapOffset++;
 			}
 
-			LightShadowOffsets[FSceneRenderData::DirectionalLightSlotIndex] = ShadowMapOffset;
-			for (int32 i = 0; i < GetDirectionalLightCount(); i++)
+			if (GetDirectionalLightCount() > 0)
 			{
-				int32 LightIndex = GetDirectionalLightOffset() + i;
+				constexpr float CascadeSplitLambda = 0.95f;
+
+				const float NearClip = View.NearClip;
+				const float FarClip = View.FarClip;
+
+				assert(NearClip > 0.0f);
+				assert(FarClip > NearClip);
+
+				for (uint32 CascadeIndex = 0; CascadeIndex < DirectionalCascadeCount; ++CascadeIndex)
+				{
+					const float SplitRatio = static_cast<float>(CascadeIndex + 1) / static_cast<float>(DirectionalCascadeCount);
+
+					const float LinearSplit = NearClip + (FarClip - NearClip) * SplitRatio;
+
+					const float LogSplit = NearClip * std::pow(FarClip / NearClip, SplitRatio);
+
+					DirectionalCascadeSplits[CascadeIndex] = View.bIsPerspective ? CascadeSplitLambda * LogSplit + (1.0f - CascadeSplitLambda) * LinearSplit : LinearSplit;
+				}
+			}
+
+			LightShadowOffsets[FSceneRenderData::DirectionalLightSlotIndex] = ShadowMapOffset;
+
+			// 카메라의 방향 벡터를 구한다.
+			// 엔진의 전방 축은 +X다.
+			const FQuat CameraRotation = View.ViewRotation.Quaternion();
+
+			const FVector CameraForward = View.ViewForward.GetSafeNormal();
+			const FVector CameraRight = CameraRotation.GetRightVector().GetSafeNormal();
+			const FVector CameraUp = CameraRotation.GetUpVector().GetSafeNormal();
+
+			assert(View.NearClip > 0.0f);
+			assert(View.FarClip > View.NearClip);
+			assert(View.AspectRatio > 0.0f);
+
+			const float HalfFOV =
+				FMath::DegreesToRadians(View.FieldOfView) * 0.5f;
+
+			for (int32 LightIndexOffset = 0; LightIndexOffset < GetDirectionalLightCount(); ++LightIndexOffset)
+			{
+				const int32 LightIndex = GetDirectionalLightOffset() + LightIndexOffset;
 
 				const FLightRenderParameters& DirectionalLight = VisibleLights[LightIndex];
 
-				FMatrix ViewMatrix = LookAt(DirectionalLight.Position, DirectionalLight.Position + DirectionalLight.Direction, FVector(0, 0, 1));
-				FMatrix ProjectionMatrix = Ortho(20, 1.0f, 0.1f, 1000.f);
+				const FVector LightDirection = DirectionalLight.Direction.GetSafeNormal();
 
-				FLightShadowRenderData Shadow{};
-				Shadow.ViewProjection = ViewMatrix * ProjectionMatrix;
+				assert(LightDirection.SizeSquared() > 0.5f);
 
-				uint32 Index = LightShadows.Add(Shadow);
+				// 4개의 Cascade를 각각 생성한다.
+				for (uint32 CascadeIndex = 0; CascadeIndex < DirectionalCascadeCount; ++CascadeIndex)
+				{
+					const float CascadeNearDepth = CascadeIndex == 0 ? View.NearClip : DirectionalCascadeSplits[CascadeIndex - 1];
 
-				AreaInfos.Add({ DirectionalLightShadowMapSize, Index });
+					const float CascadeFarDepth = DirectionalCascadeSplits[CascadeIndex];
 
-				TotalAreaSize += DirectionalLightShadowMapSize * DirectionalLightShadowMapSize;
-				MaxAreaSize = FMath::Max(MaxAreaSize, DirectionalLightShadowMapSize);
-				ShadowMapOffset++;
+					// 현재 Cascade에 해당하는 카메라 절두체의 8개 꼭짓점.
+					FVector FrustumCorners[8];
+					uint32 CornerIndex = 0;
+
+					const float Depths[2] = { CascadeNearDepth, CascadeFarDepth };
+
+					for (uint32 DepthIndex = 0; DepthIndex < 2; ++DepthIndex)
+					{
+						const float Depth = Depths[DepthIndex];
+
+						float HalfWidth;
+						float HalfHeight;
+
+						if (View.bIsPerspective)
+						{
+							HalfHeight = std::tan(HalfFOV) * Depth;
+							HalfWidth = HalfHeight * View.AspectRatio;
+						}
+						else
+						{
+							// 직교 카메라는 깊이가 달라져도 화면 영역이 같다.
+							HalfWidth = View.OrthoWidth * 0.5f;
+							HalfHeight = HalfWidth / View.AspectRatio;
+						}
+
+						const FVector SliceCenter = View.ViewLocation + CameraForward * Depth;
+
+						for (int32 YSign = -1; YSign <= 1; YSign += 2)
+						{
+							for (int32 XSign = -1; XSign <= 1; XSign += 2)
+							{
+								FrustumCorners[CornerIndex++] = SliceCenter + CameraRight * (HalfWidth * static_cast<float>(XSign)) + CameraUp * (HalfHeight * static_cast<float>(YSign));
+							}
+						}
+					}
+
+					// 8개 꼭짓점의 평균으로 Cascade 중앙을 구한다.
+					FVector CascadeCenter(0.0f, 0.0f, 0.0f);
+
+					for (const FVector& Corner : FrustumCorners)
+					{
+						CascadeCenter += Corner;
+					}
+
+					CascadeCenter /= 8.0f;
+
+					// 중앙을 기준으로 8개 꼭짓점을 모두 포함하는 구의 반지름.
+					float CascadeRadius = 0.0f;
+
+					for (const FVector& Corner : FrustumCorners)
+					{
+						CascadeRadius = FMath::Max(CascadeRadius, (Corner - CascadeCenter).Size());
+					}
+
+					// 투영 행렬이 퇴화하는 것을 방지한다.
+					CascadeRadius = FMath::Max(CascadeRadius, 1.0f);
+
+					// 광원 카메라를 Cascade 중앙보다 빛의 반대 방향으로 이동한다.
+					// 여유 공간을 두어 절두체 꼭짓점이 Near/Far 범위에서 잘리지 않게 한다.
+					constexpr float DepthPadding = 100.0f;
+
+					const FVector LightViewLocation = CascadeCenter - LightDirection * (CascadeRadius + DepthPadding);
+
+					const FMatrix LightView = LookAt(LightViewLocation, CascadeCenter, UpVector);
+
+					// 정사영 영역은 정사각형으로 잡아 모든 꼭짓점을 포함한다.
+					const float ShadowWidth = CascadeRadius * 2.0f;
+
+					const float ShadowNear = 0.1f;
+					const float ShadowFar = 2.0f * (CascadeRadius + DepthPadding);
+
+					const FMatrix LightProjection = Ortho(ShadowWidth, 1.0f, ShadowNear, ShadowFar);
+
+					FLightShadowRenderData Shadow{};
+
+					Shadow.ViewProjection = LightView * LightProjection;
+
+					// 셰이더에서 현재 Cascade의 선택 기준으로 사용한다.
+					Shadow.CascadeFarDepth = CascadeFarDepth;
+
+					const uint32 ShadowIndex = LightShadows.Add(Shadow);
+
+					AreaInfos.Add({DirectionalLightShadowMapSize, ShadowIndex});
+
+					TotalAreaSize += DirectionalLightShadowMapSize * DirectionalLightShadowMapSize;
+
+					MaxAreaSize = FMath::Max(MaxAreaSize, DirectionalLightShadowMapSize);
+
+					++ShadowMapOffset;
+				}
 			}
 
 			std::sort(AreaInfos.GetData(), AreaInfos.GetData() + AreaInfos.Num(), [](const FAreaInfo& A, const FAreaInfo& B) { return A.Size > B.Size; });

@@ -3,11 +3,11 @@
 #include "LightData.hlsli"
 #include "LightEvaluation.hlsli"
 #include "LightGridCommon.hlsli"
-
+#define DEBUG_CASCADE_COLORS 1
 // 셰이더 스캐너는 매크로 정의 없이 이 파일을 컴파일하므로 기본 변형에는 Lambert를 쓴다.
 // 명시적인 변형은 조명 모델 또는 뷰 모드 하나만 1로 설정한다.
 #if !defined(LIGHTING_MODEL_GOURAUD) && !defined(LIGHTING_MODEL_LAMBERT) && !defined(LIGHTING_MODEL_PHONG) && !defined(VIEW_MODE_WORLD_NORMAL)
-    #define LIGHTING_MODEL_LAMBERT 1
+#define LIGHTING_MODEL_LAMBERT 1
 #endif
 
 #if (LIGHTING_MODEL_GOURAUD + LIGHTING_MODEL_LAMBERT + LIGHTING_MODEL_PHONG + VIEW_MODE_WORLD_NORMAL) != 1
@@ -66,11 +66,11 @@ SamplerState PointSampler : register(s2);
 
 struct VS_IN
 {
-	float3 Position : POSITION;
-	float3 Normal : NORMAL;
-	float4 Tangent : TANGENT;
-	float2 UV : TEXCOORD;
-	float4 Color : COLOR;
+    float3 Position : POSITION;
+    float3 Normal : NORMAL;
+    float4 Tangent : TANGENT;
+    float2 UV : TEXCOORD;
+    float4 Color : COLOR;
 };
 
 struct VS_OUT
@@ -86,6 +86,7 @@ struct VS_OUT
 #elif !VIEW_MODE_WORLD_NORMAL
     float3 WorldPosition : TEXCOORD1;
 #endif
+    float ViewDepth : TEXCOORD3;
 };
 
 struct FUberOutput
@@ -116,7 +117,8 @@ float3 GetShadingNormal(VS_OUT Input)
     if (SurfaceParams.w > 0.5f)
     {
         float3 MapNormal = DecodeMapNormal(NormalTexture.Sample(ColorSampler, Input.UV).xyz, SurfaceParams.w);
-        if (SurfaceParams.x > 0.5f) MapNormal.y = -MapNormal.y;
+        if (SurfaceParams.x > 0.5f)
+            MapNormal.y = -MapNormal.y;
         float3 T = Input.WorldTangent.xyz - N * dot(N, Input.WorldTangent.xyz);
         float TangentLengthSquared = dot(T, T);
         if (TangentLengthSquared > 1.0e-8f)
@@ -140,7 +142,8 @@ float3 CalculateAmbientLight(FAmbientLightInfo Info)
 
 float3 CalculateSkyLight(float3 N)
 {
-    if (SkyColorIntensity.a <= 0.0f) return 0.0f;
+    if (SkyColorIntensity.a <= 0.0f)
+        return 0.0f;
     return SkyIrradiance.SampleLevel(SkySampler, N, 0).rgb *
         SkyColorIntensity.rgb * SkyColorIntensity.a;
 }
@@ -176,7 +179,8 @@ void CalculatePointLight(inout FLightResult Result, FLightRenderParameters Info,
     float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
     // Deferred와 동일하게 Point Light의 RadiusFallOff를 반경 감쇠 지수로 사용한다.
     float Fade = pow(saturate(1.0f - Distance / Info.Radius), max(Info.FalloffExponent, 0.0f));
-    if (Fade <= 0.0f) return;
+    if (Fade <= 0.0f)
+        return;
     float3 L = ToLight / Distance;
     float3 Radiance = Info.Color * max(Info.Intensity, 0.0f) * Fade;
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
@@ -187,13 +191,14 @@ void CalculateSpotLight(inout FLightResult Result, FLightRenderParameters Info, 
     float3 ToLight = Info.Position - P;
     float DistanceSquared = dot(ToLight, ToLight);
     float RadiusFade = CalculateDistanceAttenuation(DistanceSquared, Info.Radius * Info.Radius);
-    if (RadiusFade <= 0.0f) return;
+    if (RadiusFade <= 0.0f)
+        return;
     float3 L = ToLight / sqrt(max(DistanceSquared, 1.0e-6f));
-	float ConeCos = dot(-L, normalize(Info.Direction));
-	float ConeFade = CalculateConeAttenuation(ConeCos, Info.InnerConeCos, Info.OuterConeCos);
-	ConeFade = pow(ConeFade, max(Info.FalloffExponent, 0.0001f));
+    float ConeCos = dot(-L, normalize(Info.Direction));
+    float ConeFade = CalculateConeAttenuation(ConeCos, Info.InnerConeCos, Info.OuterConeCos);
+    ConeFade = pow(ConeFade, max(Info.FalloffExponent, 0.0001f));
 
-	float3 Radiance = Info.Color * max(Info.Intensity, 0.0f) * ConeFade * RadiusFade;
+    float3 Radiance = Info.Color * max(Info.Intensity, 0.0f) * ConeFade * RadiusFade;
 
     AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
@@ -201,55 +206,55 @@ void CalculateSpotLight(inout FLightResult Result, FLightRenderParameters Info, 
 void CalculateRectLight(inout FLightResult Result, FLightRenderParameters Info,
 	float3 P, float3 N, float3 V, bool bIncludeSpecular)
 {
-	float3 Position = Info.Position;
-	float Radius = Info.Radius;
-	float3 Direction = Info.Direction;
-	float BarnDoorLength = Info.BarnDoorLength;
-	float3 Color = Info.Color;
-	float Intensity = Info.Intensity;
-	float BarnDoorCos = Info.BarnDoorCos;
-	float BarnDoorSin = Info.BarnDoorSin;
-	float FalloffExponent = Info.FalloffExponent;
-	float3 Right = Info.Right;
-	float HalfWidth = Info.HalfWidth;
-	float HalfHeight = Info.HalfHeight;
+    float3 Position = Info.Position;
+    float Radius = Info.Radius;
+    float3 Direction = Info.Direction;
+    float BarnDoorLength = Info.BarnDoorLength;
+    float3 Color = Info.Color;
+    float Intensity = Info.Intensity;
+    float BarnDoorCos = Info.BarnDoorCos;
+    float BarnDoorSin = Info.BarnDoorSin;
+    float FalloffExponent = Info.FalloffExponent;
+    float3 Right = Info.Right;
+    float HalfWidth = Info.HalfWidth;
+    float HalfHeight = Info.HalfHeight;
 
-	float3 Up = cross(Direction, Right);
-	float3 CenterToSurface = P - Position;
+    float3 Up = cross(Direction, Right);
+    float3 CenterToSurface = P - Position;
 
-	float RectX = clamp(dot(CenterToSurface, Right), -HalfWidth, HalfWidth);
-	float RectY = clamp(dot(CenterToSurface, Up), -HalfHeight, HalfHeight);
-	float3 ClosestPoint = Position + Right * RectX + Up * RectY;
+    float RectX = clamp(dot(CenterToSurface, Right), -HalfWidth, HalfWidth);
+    float RectY = clamp(dot(CenterToSurface, Up), -HalfHeight, HalfHeight);
+    float3 ClosestPoint = Position + Right * RectX + Up * RectY;
 
-	float3 ToLight = ClosestPoint - P;
-	float DistanceSquared = dot(ToLight, ToLight);
-	float RadiusSquared = Radius * Radius;
-	if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
-		return;
+    float3 ToLight = ClosestPoint - P;
+    float DistanceSquared = dot(ToLight, ToLight);
+    float RadiusSquared = Radius * Radius;
+    if (RadiusSquared <= 0.0f || DistanceSquared >= RadiusSquared || DistanceSquared < 1.0e-8f)
+        return;
 
-	float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
-	float3 L = ToLight / Distance;
+    float Distance = sqrt(max(DistanceSquared, 1.0e-6f));
+    float3 L = ToLight / Distance;
 
-	float Attenuation = pow(saturate(1.0f - Distance / max(Radius, 0.001f)), max(FalloffExponent, 0.001f));
-	float FrontFace = saturate(dot(-L, Direction));
-	if (FrontFace <= 0.0f || Attenuation <= 0.0f)
-		return;
+    float Attenuation = pow(saturate(1.0f - Distance / max(Radius, 0.001f)), max(FalloffExponent, 0.001f));
+    float FrontFace = saturate(dot(-L, Direction));
+    if (FrontFace <= 0.0f || Attenuation <= 0.0f)
+        return;
 
-	float BarnDoorMask = 1.0f;
-	if (BarnDoorLength > 0.0f)
-	{
-		float3 EmitterToSurface = P - ClosestPoint;
-		float EmitterDist = max(length(EmitterToSurface), 0.0001f);
-		float ForwardDist = dot(EmitterToSurface, Direction);
-		float LateralX = abs(dot(EmitterToSurface, Right));
-		float LateralY = abs(dot(EmitterToSurface, Up));
-		float SlackX = (ForwardDist * BarnDoorSin - LateralX * BarnDoorCos) / EmitterDist;
-		float SlackY = (ForwardDist * BarnDoorSin - LateralY * BarnDoorCos) / EmitterDist;
-		BarnDoorMask = smoothstep(-0.05f, 0.0f, SlackX) * smoothstep(-0.05f, 0.0f, SlackY);
-	}
+    float BarnDoorMask = 1.0f;
+    if (BarnDoorLength > 0.0f)
+    {
+        float3 EmitterToSurface = P - ClosestPoint;
+        float EmitterDist = max(length(EmitterToSurface), 0.0001f);
+        float ForwardDist = dot(EmitterToSurface, Direction);
+        float LateralX = abs(dot(EmitterToSurface, Right));
+        float LateralY = abs(dot(EmitterToSurface, Up));
+        float SlackX = (ForwardDist * BarnDoorSin - LateralX * BarnDoorCos) / EmitterDist;
+        float SlackY = (ForwardDist * BarnDoorSin - LateralY * BarnDoorCos) / EmitterDist;
+        BarnDoorMask = smoothstep(-0.05f, 0.0f, SlackX) * smoothstep(-0.05f, 0.0f, SlackY);
+    }
 
-	float3 Radiance = Color * max(Intensity, 0.0f) * Attenuation * FrontFace * BarnDoorMask;
-	AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
+    float3 Radiance = Color * max(Intensity, 0.0f) * Attenuation * FrontFace * BarnDoorMask;
+    AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
 FLightResult CalculateBaseLighting(float3 P, float3 N, float3 V, bool bIncludeSpecular)
@@ -261,15 +266,36 @@ FLightResult CalculateBaseLighting(float3 P, float3 N, float3 V, bool bIncludeSp
     [loop]
     for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
     {
-        FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.z + DirectionalIndex];
-            
+        float ViewDepth = mul(float4(P, 1.0f), View).x;
+
+        const uint DirectionalShadowBase = LightShadowOffsets.z + DirectionalIndex * DIRECTIONAL_CASCADE_COUNT;
+        
+        uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1;
+        
+        [unroll]
+        for (uint CandidateIndex = 0; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
+        {
+            FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
+
+            if (ViewDepth <= CandidateShadow.CascadeFarDepth)
+            {
+                CascadeIndex = CandidateIndex;
+                break;
+            }
+        }
+
+        FLightShadowRenderData LightShadow =
+        LightShadows[DirectionalShadowBase + CascadeIndex];
+
         float Shadow = CalculateShadow(P, LightShadow.ViewProjection, LightShadow.AtlasRect, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, LightShadow.AtlasIndex, PointSampler);
-            
+
         FLightResult DirectionalResult = (FLightResult) 0;
+
         CalculateDirectionalLight(DirectionalResult, SceneLights[LightOffsets.z + DirectionalIndex], N, V, bIncludeSpecular);
+
         DirectionalResult.Diffuse *= Shadow;
         DirectionalResult.Specular *= Shadow;
-         
+
         Result.Diffuse += DirectionalResult.Diffuse;
         Result.Specular += DirectionalResult.Specular;
     }
@@ -423,10 +449,10 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P,
         }
 
 		[loop]
-		for (uint RectIndex = 0; RectIndex < LightCounts.w; ++RectIndex)
-		{
-			CalculateRectLight(Result, SceneLights[LightOffsets.w + RectIndex], P, N, V, bIncludeSpecular);
-		}
+        for (uint RectIndex = 0; RectIndex < LightCounts.w; ++RectIndex)
+        {
+            CalculateRectLight(Result, SceneLights[LightOffsets.w + RectIndex], P, N, V, bIncludeSpecular);
+        }
     }
     return Result;
 }
@@ -438,6 +464,7 @@ VS_OUT Uber_VS(VS_IN Input)
     VS_OUT Output;
     float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
     Output.Position = mul(mul(WorldPosition, View), Projection);
+    Output.ViewDepth = mul(WorldPosition, View).x;
     Output.Color = Input.Color;
     Output.UV = Input.UV * UVTransform.zw + UVTransform.xy;
 
@@ -445,7 +472,7 @@ VS_OUT Uber_VS(VS_IN Input)
     Output.WorldNormal = N;
     float3 T = mul(float4(Input.Tangent.xyz, 0.0f), World).xyz;
     // CPU가 구한 로컬 공간 부호에 월드 변환의 거울 반전만 반영한다.
-    float Handedness = Input.Tangent.w * (determinant((float3x3)World) < 0.0f ? -1.0f : 1.0f);
+    float Handedness = Input.Tangent.w * (determinant((float3x3) World) < 0.0f ? -1.0f : 1.0f);
     Output.WorldTangent = float4(T, Handedness);
 #if LIGHTING_MODEL_GOURAUD
     FLightResult Lit = CalculateLighting(WorldPosition.xyz, N, true);
@@ -460,6 +487,18 @@ VS_OUT Uber_VS(VS_IN Input)
 FUberOutput Uber_PS(VS_OUT Input)
 {
     FUberOutput Output;
+    #if DEBUG_CASCADE_COLORS
+    Output.LitColor = float4(
+        GetCascadeDebugColor(Input.ViewDepth),
+        1.0f
+    );
+
+#if !VIEW_MODE_WORLD_NORMAL
+    Output.NormalRoughness = float4(0.0f, 0.0f, 1.0f, 1.0f);
+#endif
+
+    return Output;
+#endif
     float3 ShadingNormal = GetShadingNormal(Input);
 #if VIEW_MODE_WORLD_NORMAL
     Output.LitColor = float4(ShadingNormal * 0.5f + 0.5f, 1.0f);
@@ -499,5 +538,11 @@ FUberOutput Uber_PS(VS_OUT Input)
 }
 
 // 현재 리소스 매니저는 .hlsl 파일을 스캔할 때 mainVS/mainPS 진입점을 찾는다.
-VS_OUT mainVS(VS_IN Input) { return Uber_VS(Input); }
-FUberOutput mainPS(VS_OUT Input) { return Uber_PS(Input); }
+VS_OUT mainVS(VS_IN Input)
+{
+    return Uber_VS(Input);
+}
+FUberOutput mainPS(VS_OUT Input)
+{
+    return Uber_PS(Input);
+}
