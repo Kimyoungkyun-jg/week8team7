@@ -1,5 +1,6 @@
 // 라이트 컬링 CS(Clustered/Tiled, 2.5D)가 함께 쓰는 정의와 검사 함수.
-// 구조체·cbuffer는 C++(SceneManagement.h, Renderer.h)과 바이트 단위로 같아야 한다.
+// 구조체·cbuffer는 C++(SceneManagement.h, ForwardLightTiles.h)과 바이트 단위로 같아야 한다.
+// 셀 목록에는 LocalLightOffset을 뺀 로컬 광원 번호를 저장한다.
 #pragma pack_matrix(row_major)
 #include "LightData.hlsli"
 
@@ -19,7 +20,8 @@ cbuffer FLightCullingConstants : register(b0)
     uint bOrthographic;
     float NearZ;
     float FarZ;
-    float2 Padding;
+    uint LocalLightOffset;  // LocalLights에서 로컬 광원(포인트, 스포트, 렉트) 구간이 시작되는 위치
+    uint CullingPadding;
 };
 
 StructuredBuffer<FLightRenderParameters> LocalLights : register(t10);

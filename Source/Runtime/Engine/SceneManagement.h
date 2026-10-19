@@ -25,12 +25,12 @@ struct FLightRenderParameters
 	float BarnDoorCos;
 	float BarnDoorSin;
 	float BarnDoorLength;
-	float Padding;
+	int32 ShadowMapChannel;
 };
 
 static_assert(sizeof(FLightRenderParameters) == 96, "sizeof(LightData.hlsli FLightRenderParameters) == sizeof(FLightRenderParameters)");
 
-// Directional 라이트 CSM에서 캐스케이드 하나가 맡는 구간. Initializer보다 먼저 정의해야 한다.
+// Directional 라이트 CSM에서 캐스케이드 하나가 맡는 구간과 Fade 정보
 class FShadowCascadeSettings
 {
 public:
@@ -84,7 +84,7 @@ public:
 	}
 };
 
-// 그림자 카메라에 대한 설계도
+// 그림자 카메라에 대한 설계도, 이동, 회전, Scales, near/far, 덮는 영역
 class FProjectedShadowInitializer
 {
 public:
@@ -109,12 +109,11 @@ public:
 	// far
 	float MaxDistanceToCastInLightW = 0.0f;
 
-	// IsCachedShadowValid는 그림자 캐싱(8단계)에서 추가한다.
-	// FVector, FMatrix, FVector4에 == 연산자가 아직 없다.
+	// IsCachedShadowValid는 그림자 캐싱에서 추가
 };
 
 
-// FWholeSceneProjectedShadowInitializer   그림자 카메라 설계도(라이트 종류와 무관한 공통 형식)
+// FProjectedShadowInitializer + 캐스케이드 정보 + Point 큐브 원패스 여부
 class FWholeSceneProjectedShadowInitializer : public FProjectedShadowInitializer
 {
 public:

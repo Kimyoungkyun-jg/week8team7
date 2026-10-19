@@ -3,7 +3,7 @@
 #include "SceneComponent.h"
 #include "Math/Color.h"
 
-enum class ELightType { Directional, Point, Spot, Rect, Fireball, Sky };
+enum class ELightType { Directional, Point, Spot, Rect, Sky };
 
 class ULightComponentBase : public USceneComponent
 {

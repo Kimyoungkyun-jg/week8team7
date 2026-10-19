@@ -61,6 +61,7 @@ namespace
 			Batch.bUseObjectSlots = false;
 			Batch.bBindViewConstants = false;
 			Batch.ObjectBindingSlot = 0;
+			Batch.ObjectStages = EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel;
 			Batch.MaterialSlot = 2;
 			Batch.MaterialStages = EShaderBindFlagBits::Vertex | EShaderBindFlagBits::Pixel;
 			Batch.SamplerStages = Batch.MaterialStages;
@@ -131,7 +132,7 @@ namespace
 
 	FMeshDrawBatch::FItem BuildItem(const FMatrix& World, const FSceneView& View,
 		EMeshPassType Pass, uint32 Slot, uint32 StartIndex, uint32 IndexCount,
-		const void* ObjectKey, bool bOccludedByGpu)
+		const void* ObjectKey, bool bOccludedByGpu, bool bReceiveShadow)
 	{
 		FMeshDrawBatch::FItem Item{};
 		Item.ObjectSlot = Slot;
@@ -147,6 +148,7 @@ namespace
 			Constants.View = View.ViewMatrix;
 			Constants.Projection = View.ProjectionMatrix;
 			Constants.NormalMatrix = World.Inverse().GetTransposed();
+			Constants.ObjectFlags = FVector4(bReceiveShadow ? 1.0f : 0.0f, 0.0f, 0.0f, 0.0f);
 			std::memcpy(Item.ObjectData.data(), &Constants, sizeof(Constants));
 			Item.ObjectDataSize = sizeof(Constants);
 		}
@@ -183,7 +185,7 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 			Batch.Items.reserve(Group->Items.size());
 			for (const FStaticDrawItem& Item : Group->Items)
 				Batch.Items.push_back(BuildItem(Item.Proxy->GetLocalToWorld(), View, Pass, Item.Slot,
-					Item.StartIndex, Item.IndexCount, Item.Proxy, Item.bOccludedByGpu != 0));
+					Item.StartIndex, Item.IndexCount, Item.Proxy, Item.bOccludedByGpu != 0, Item.Proxy->bReceiveShadow));
 			Out.Add(std::move(Batch));
 		}
 	}
@@ -203,7 +205,7 @@ bool FMeshPassProcessor::Build(const FSceneView& View, const FRenderQueue& Queue
 		const void* ObjectKey = Packet.Proxy ? static_cast<const void*>(Packet.Proxy) : static_cast<const void*>(&Packet);
 
 		Batch.Items.push_back(BuildItem(PacketWorld(Packet), View, Pass, Packet.Slot,
-			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu));
+			Packet.StartIndex, IndexCount, ObjectKey, Packet.bOccludedByGpu, Packet.Proxy ? Packet.Proxy->bReceiveShadow : true));
 		Out.Add(std::move(Batch));
 	}
 	return true;

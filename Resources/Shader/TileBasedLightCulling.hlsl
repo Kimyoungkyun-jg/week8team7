@@ -27,7 +27,7 @@ void mainCS(uint3 GroupID : SV_GroupID, uint GroupIndex : SV_GroupIndex)
     {
         float3 CenterVS;
         float CullRadius;
-        if (LightIntersectsCell(LocalLights[i], Cell, CenterVS, CullRadius))
+        if (LightIntersectsCell(LocalLights[LocalLightOffset + i], Cell, CenterVS, CullRadius))
             AppendLight(i);
     }
     GroupMemoryBarrierWithGroupSync();

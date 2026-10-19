@@ -29,16 +29,16 @@ public:
 	FStructuredBuffer* GetSceneLights() const { return SceneLightBuffer.get(); }
 	FConstantBuffer* GetForwardConstants() const { return ForwardLightCB.get(); }
 	FConstantBuffer* GetDeferredConstants() const { return DeferredLightCB.get(); }
+	FConstantBuffer* GetShadowProjectionConstants() const { return ShadowProjectionLightCB.get(); }
 	FForwardLightTileGrid& GetTiles() { return ForwardTileGrid; }
 
-	FTexture2D* GetShadowDepthTexture(uint32 Size);
 
 private:
 	TUniquePtr<FStructuredBuffer> SceneLightBuffer;
 	TUniquePtr<FConstantBuffer> ForwardLightCB;
 	TUniquePtr<FConstantBuffer> DeferredLightCB;
+	TUniquePtr<FConstantBuffer> ShadowProjectionLightCB;
 	FForwardLightTileGrid ForwardTileGrid;
 
-	TUniquePtr<FTexture2D> ShadowDepthTexture;
 	bool bInitialized = false;
 };

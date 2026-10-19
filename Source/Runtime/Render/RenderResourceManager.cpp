@@ -35,12 +35,13 @@ constexpr FPipelineTableEntry PipelineTable[] =
 	{ EPSOType::DeferredLighting,       "Resources/Shader/DeferredLightingShader.hlsl",    D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque,       EDepthStencilState::Disabled },
 	{ EPSOType::DeferredPointLighting,  "Resources/Shader/DeferredLightingShader.hlsl",    D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Additive,     EDepthStencilState::Disabled },
 	{ EPSOType::ToneMap,                "Resources/Shader/ToneMapShader.hlsl",              D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque,       EDepthStencilState::Disabled },
-	{ EPSOType::FireBall,               "Resources/Shader/FireBallShader.hlsl",             D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Additive,     EDepthStencilState::ReadOnly },
+	{ EPSOType::Removed_FireBall,       nullptr,                                            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque,       EDepthStencilState::Default },
 	{ EPSOType::Billboard,              "Resources/Shader/BillboardShader.hlsl",            D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend,   EDepthStencilState::ReadOnly },
 	{ EPSOType::StaticMesh_Forward,		"Resources/Shader/UberLit.hlsl",			D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST,			ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
 	{ EPSOType::StaticMesh_WorldNormal, "Resources/Shader/UberLit.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::Opaque, EDepthStencilState::Default },
 	{ EPSOType::StaticMesh_DepthOnly, "Resources/Shader/DepthPrepass.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidBack, EBlendState::NoColorWrite, EDepthStencilState::Default },
 	{ EPSOType::LightCullingDebug, "Resources/Shader/LightCullingDebug.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::AlphaBlend, EDepthStencilState::Disabled },
+	{ EPSOType::ShadowProjection, "Resources/Shader/ShadowProjectionPixelShader.hlsl", D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST, ERasterizerState::SolidNone, EBlendState::Opaque, EDepthStencilState::Disabled },
 };
 
 static_assert(sizeof(PipelineTable) / sizeof(PipelineTable[0]) == static_cast<size_t>(EPSOType::Count));
@@ -54,7 +55,8 @@ void FRenderResourceManager::InitPipelineStates()
 		PipelineStateMap[Type] = MakeUnique<FPipelineState>();
 		FPipelineState* State = PipelineStateMap[Type].get();
 		// World Normal은 전용 매크로 변형이 성공했을 때만 연결한다.
-		State->Shader = Type == EPSOType::StaticMesh_WorldNormal ? nullptr : GetShaderProgram(Entry.ShaderPath);
+		// 셰이더 경로가 없는 칸(삭제된 PSO)은 셰이더 없이 둔다.
+		State->Shader = Type == EPSOType::StaticMesh_WorldNormal || !Entry.ShaderPath ? nullptr : GetShaderProgram(Entry.ShaderPath);
 		State->Topology = Entry.Topology;
 		State->RasterizerState = Entry.RasterizerState;
 		State->BlendState = Entry.BlendState;

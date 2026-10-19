@@ -15,7 +15,6 @@
 
 #include "Components/RotatingMovementComponent.h"
 #include "Components/ProjectileMovementComponent.h"
-#include "Components/FireBallComponent.h"
 #include "Asset/AssetManager.h"
 #include "Render/Material.h"
 #include "Render/Texture2D.h"

@@ -19,12 +19,13 @@ enum class EPSOType : uint8
 	DeferredLighting,
 	DeferredPointLighting,      // 이전 재질 파일의 PSOType 숫자와 호환을 위해 ID 유지
 	ToneMap,
-	FireBall,
+	Removed_FireBall,           // 삭제됨. 뒤 PSOType 숫자(재질 파일 호환)를 유지하려고 칸만 남긴다
 	Billboard,
 	StaticMesh_Forward,
 	StaticMesh_WorldNormal,
 	StaticMesh_DepthOnly,
 	LightCullingDebug,
+	ShadowProjection,
 	Count
 };
 

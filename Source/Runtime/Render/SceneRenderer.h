@@ -31,7 +31,6 @@ struct FSceneOverlayCallbacks
 
 struct FScenePassCallbacks // 기본 도형 다 그려진 후 그려져야 될 목록들
 {
-	std::function<void()> FireBall;
 	std::function<bool()> HeightFog;
 	std::function<FConstantBuffer*(bool)> TranslucentFogConstants;
 	std::function<void()> SceneText;
@@ -40,6 +39,8 @@ struct FScenePassCallbacks // 기본 도형 다 그려진 후 그려져야 될 �
 	FTexture2D* FXAAOutput = nullptr;
 	FSceneOverlayCallbacks Overlays;
 };
+
+
 
 // 씬 렌더링 조율자
 class FSceneRenderer
@@ -79,6 +80,8 @@ public:
 	bool IsLightInView(FLightSceneProxy* Proxy);
 
 	void CreateWholeSceneProjectedShadow(FLightSceneInfo* LightSceneInfo);
+
+	void AllocateShadowDepthTargets();
 	
 private:
 	bool AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Renderer, FSceneViewTargets& Targets,

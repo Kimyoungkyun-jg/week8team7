@@ -52,7 +52,11 @@ public:
 	uint8* BeginObjectConstants(uint32 MaxSlots);
 	void EndObjectConstants();
 
+	FTexture2D* GetShadowAtlas(uint32 Size);
+
 private:
+	TUniquePtr<FTexture2D> ShadowAtlas;
+
 	void EnsurePerObjectSlotCapacity(uint32 SlotCount);
 	void BindBatch(const FMeshDrawBatch& Batch);
 	void BindObject(const FMeshDrawBatch& Batch, const FMeshDrawBatch::FItem& Item);

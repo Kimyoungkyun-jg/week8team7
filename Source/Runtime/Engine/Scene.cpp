@@ -114,6 +114,24 @@ void FScene::AddLight(ULightComponent* Component)
 	{
 		Lights[Info->Id] = Info;
 	}
+
+	if (Proxy->CastsDynamicShadow())
+	{
+		bool bUsed[4] = {};
+		for (const FLightSceneInfo* Other : Lights)
+		{
+			if (!Other || Other == Info) continue;
+			int32 DynamicShadowChannel = Other->GetDynamicShadowMapChannel();
+			if (Other && Other != Info && DynamicShadowChannel  >= 0)
+				bUsed[DynamicShadowChannel] = true;
+		}
+		for (int32 Channel = 0; Channel < 4; ++Channel)
+			if (!bUsed[Channel]) 
+			{
+				Info->SetDynamicShadowMapChannel(Channel); 
+				break; 
+			}
+	}
 	Proxy->LightSceneInfo = Info;
 }
 

@@ -1,7 +1,6 @@
 #include "EnginePCH.h"
 #include "GameFramework/Actor/ProjectileActor.h"
 #include "Components/StaticMeshComponent.h"
-#include "Components/FireBallComponent.h"
 #include "Components/ProjectileMovementComponent.h"
 #include "Asset/AssetManager.h"
 #include "Engine/World.h"
@@ -12,26 +11,13 @@ AProjectileActor::AProjectileActor()
     PrimaryActorTick.bStartWithTickEnabled = false;
     GetRootComponent()->SetCollisionRadiusOverride(0.5f);
     StaticMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>("ProjectileMeshComponent");
-    // 이동용 루트는 표시 상태와 분리한다. 숨겨진 메쉬를 부모로 두면 FireBall 자식도 함께 숨겨진다.
+    // 이동용 루트는 표시 상태와 분리한다.
     StaticMeshComponent->SetupAttachment(GetRootComponent());
     StaticMeshComponent->SetStaticMesh(UAssetManager::GetAssetByPath<UStaticMesh>("Sphere"));
     StaticMeshComponent->SetRelativeScale3D(FVector(0.5f));
     StaticMeshComponent->SetVisible(false);
     StaticMeshComponent->SetHiddenInGame(true);
     StaticMeshComponent->SetAutoActivate(false);
-    FireBallComponent = CreateDefaultSubobject<UFireBallComponent>("FireBallComponent");
-    FireBallComponent->SetupAttachment(GetRootComponent());
-    FireBallComponent->SetVisibility(false);
-    FireBallComponent->SetHiddenInGame(true);
-    FireBallComponent->SetAutoActivate(false);
-    // FireBall은 깊이 버퍼의 표면에만 색을 입히므로 전용 구체를 함께 움직인다.
-    FireBallMeshComponent = CreateDefaultSubobject<UStaticMeshComponent>("FireBallMeshComponent");
-    FireBallMeshComponent->SetupAttachment(GetRootComponent());
-    FireBallMeshComponent->SetStaticMesh(UAssetManager::GetAssetByPath<UStaticMesh>("Sphere"));
-    FireBallMeshComponent->SetRelativeScale3D(FVector(FireBallComponent->GetRadius() * 0.5f));
-    FireBallMeshComponent->SetVisible(false);
-    FireBallMeshComponent->SetHiddenInGame(true);
-    FireBallMeshComponent->SetAutoActivate(false);
     ProjectileMovementComponent = CreateDefaultSubobject<UProjectileMovementComponent>("ProjectileMovementComponent");
     ProjectileMovementComponent->SetAutoActivate(false);
     ProjectileMovementComponent->SetUpdatedComponent(GetRootComponent());
@@ -45,29 +31,16 @@ AProjectileActor::AProjectileActor()
     ProjectileMovementComponent->PrimaryComponentTick.bStartWithTickEnabled = false;
 }
 
-void AProjectileActor::Launch(const FVector& Position, const FVector& Direction, bool bUseStaticMesh)
+void AProjectileActor::Launch(const FVector& Position, const FVector& Direction)
 {
     if (!GetWorld() || GetWorld()->GetWorldType() != EWorldType::PIE || Direction.Dot(Direction) <= 0.0001f)
         return;
     ReturnToPool();
     const FVector Forward = Direction.Normalized();
     GetRootComponent()->SetWorldLocation(Position, false);
-    if (bUseStaticMesh)
-    {
-        StaticMeshComponent->SetVisible(true);
-        StaticMeshComponent->Activate();
-        StaticMeshComponent->SetHiddenInGame(false);
-    }
-    else
-    {
-        FireBallMeshComponent->SetRelativeScale3D(FVector(FireBallComponent->GetRadius() * 0.5f));
-        FireBallMeshComponent->SetVisible(true);
-        FireBallMeshComponent->Activate();
-        FireBallMeshComponent->SetHiddenInGame(false);
-        FireBallComponent->SetVisibility(true);
-        FireBallComponent->Activate();
-        FireBallComponent->SetHiddenInGame(false);
-    }
+    StaticMeshComponent->SetVisible(true);
+    StaticMeshComponent->Activate();
+    StaticMeshComponent->SetHiddenInGame(false);
     ProjectileMovementComponent->SetUpdatedComponent(GetRootComponent());
     ProjectileMovementComponent->Velocity = Forward * ProjectileMovementComponent->InintialSpeed;
     ProjectileMovementComponent->bSimulationEnabled = true;
@@ -92,18 +65,6 @@ void AProjectileActor::ReturnToPool()
         StaticMeshComponent->Deactivate();
         StaticMeshComponent->SetHiddenInGame(true);
         StaticMeshComponent->SetVisible(false);
-    }
-    if (FireBallComponent)
-    {
-        FireBallComponent->Deactivate();
-        FireBallComponent->SetHiddenInGame(true);
-        FireBallComponent->SetVisibility(false);
-    }
-    if (FireBallMeshComponent)
-    {
-        FireBallMeshComponent->Deactivate();
-        FireBallMeshComponent->SetHiddenInGame(true);
-        FireBallMeshComponent->SetVisible(false);
     }
     PrimaryActorTick.SetTickFunctionEnable(false);
 }

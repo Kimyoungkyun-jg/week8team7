@@ -1,10 +1,9 @@
 // UberLit과 동일한 상수 배치 및 셀 주소 계산을 사용한다.
 #include "LightGridCommon.hlsli"
 
-#define TILE_SIZE LIGHT_GRID_TILE_SIZE
-#define INVALID_LIGHT_LIST 0xffffffffu
+// 타일 크기는 컬링 방식마다 달라서 상수 버퍼의 TileSize를 쓴다. Off는 TileSize가 0이라 16칸으로 표시한다.
+#define TILE_SIZE max(TileSize, 16u)
 
-StructuredBuffer<uint4> TileLightRanges : register(t9);
 Texture2D<float> SceneDepth : register(t0);
 
 struct FPSInput
@@ -93,34 +92,31 @@ float4 mainPS(FPSInput Input) : SV_Target
 
     // 목록이 없거나 불투명 표면이 없는 픽셀은 기존 장면을 유지한다.
     if (DeviceZ >= 1.0f) discard;
-  
+
+    uint2 ViewSize;
+    SceneDepth.GetDimensions(ViewSize.x, ViewSize.y);
+
     // 후보 광원이 있는 타일의 표면에만 표시한다.
-    uint2 Tile = Pixel / LIGHT_GRID_TILE_SIZE;
-    uint2 InTile = Pixel % LIGHT_GRID_TILE_SIZE;
-    
+    uint2 Tile = Pixel / TILE_SIZE;
+    uint2 InTile = Pixel % TILE_SIZE;
+
     // 숫자는 타일 중앙 표면의 대표 셀에서 가져온 하나의 값으로 고정한다.
-    uint2 CenterPixel = min(Tile * LIGHT_GRID_TILE_SIZE + LIGHT_GRID_TILE_SIZE / 2u, uint2(GridViewWidth - 1u, GridViewHeight - 1u));
+    uint2 CenterPixel = min(Tile * TILE_SIZE + TILE_SIZE / 2u, ViewSize - 1u);
     float CenterDeviceZ = SceneDepth.Load(int3(CenterPixel, 0));
     if (CenterDeviceZ < 1.0f)
     {
-        uint TextCount = GridPointCount + GridSpotCount;
+        uint TextCount = GridNumLocalLights;
         if (GridMode != LIGHT_GRID_MODE_OFF)
-        {
-            uint4 CenterRange = TileLightRanges[GetLightGridCellIndex(CenterPixel, CenterDeviceZ)];
-            TextCount = CenterRange.y + CenterRange.w;
-        }
+            TextCount = CellLightIndices[GetLightGridCellOffset(CenterPixel, CenterDeviceZ)];
 
-        // 제외 수를 보고 싶으면 전체 업로드 수 - TextCount로 바꿀 수 있다.
         // 현재 표면의 후보가 0이어도 대표 숫자의 획은 먼저 출력한다.
         if (TextCount > 0u && IsCountPixel(TextCount, InTile)) return float4(1.0f, 1.0f, 1.0f, 1.0f);
     }
 
     // Off는 전체 입력 수, 나머지는 현재 표면 셀의 후보 수를 사용한다.
-    uint4 Range = uint4(0u, GridPointCount, 0u, GridSpotCount);
+    uint Count = GridNumLocalLights;
     if (GridMode != LIGHT_GRID_MODE_OFF)
-        Range = TileLightRanges[GetLightGridCellIndex(Pixel, DeviceZ)];
-
-    uint Count = Range.y + Range.w;
+        Count = CellLightIndices[GetLightGridCellOffset(Pixel, DeviceZ)];
     if (Count == 0)
         discard;
 
@@ -133,9 +129,9 @@ float4 mainPS(FPSInput Input) : SV_Target
         Alpha = 0.70f;
     }
 
-    // 공간 부족으로 전체 배열 평가에 전환된 셀을 표시한다.
-    bool PoolOverflow = GridMode != LIGHT_GRID_MODE_OFF && (Range.x == INVALID_LIGHT_LIST || Range.z == INVALID_LIGHT_LIST);
-    if (PoolOverflow && InTile.x >= LIGHT_GRID_TILE_SIZE - 3u && InTile.y >= 1u && InTile.y <= 2u)
+    // 상한을 넘어 전체 순회로 전환된 셀을 표시한다.
+    bool CellOverflow = GridMode != LIGHT_GRID_MODE_OFF && Count >= MAX_LIGHTS_PER_CELL;
+    if (CellOverflow && InTile.x >= TILE_SIZE - 3u && InTile.y >= 1u && InTile.y <= 2u)
     {
         Color = float3(1.0f, 0.0f, 1.0f);
         Alpha = 1.0f;

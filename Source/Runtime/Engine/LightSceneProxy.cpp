@@ -21,6 +21,70 @@ void FDirectionalLightSceneProxy::GetLightShaderParameters(FLightRenderParameter
 	Out.Intensity = Dir->GetIntensity();
 }
 
+uint32 FDirectionalLightSceneProxy::GetNumViewDependentWholeSceneShadows(const FSceneView& View) const
+{
+	return uint32();
+}
+
+bool FDirectionalLightSceneProxy::GetViewDependentWholeSceneProjectedShadowInitializer(const FSceneView& View, int32 InCascadeIndex, FWholeSceneProjectedShadowInitializer& OutInitializer) const
+{
+	const FSphere Bounds = GetShadowSplitBounds(View, InCascadeIndex, &OutInitializer.CascadeSettings);
+	const float R = Bounds.Radius;
+
+	OutInitializer.PreShadowTranslation = -Bounds.Center;
+	OutInitializer.WorldToLight = View.ViewRotation.Quaternion().ToFMatrix().GetTransposed();
+	OutInitializer.Scales = FVector2(1.0f/R, 1.0f/R);
+	OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(R), R);
+	OutInitializer.WAxis = FVector4(0, 0, 0, 1);
+	OutInitializer.MinLightW = -R;
+	OutInitializer.MaxDistanceToCastInLightW = R;
+
+	return true;
+}
+
+FSphere FDirectionalLightSceneProxy::GetShadowSplitBounds(const FSceneView& View, int32 InCascadeIndex, FShadowCascadeSettings* OutCascadeSettings) const
+{
+	const float SplitNear = View.NearClip;
+	const float SplitFar = 100.0f;
+
+	const FQuat Q = View.ViewRotation.Quaternion();
+	const FVector Forward = Q.GetForwardVector();
+	const FVector Right = Q.GetRightVector();
+	const FVector Up = Q.GetUpVector();
+
+	const float TanY = tanf(FMath::DegreesToRadians(View.FieldOfView) * 0.5f);
+	const float TanX = TanY * View.AspectRatio;
+
+	FVector Corners[8];
+	const float Dist[2] = { SplitNear, SplitFar };
+	for (int32 i = 0; i < 2; ++i)
+	{
+		const FVector C = View.ViewLocation + Forward * Dist[i]; // 면의 중심
+		const FVector R = Right * TanX * Dist[i];
+		const FVector U = Up * TanY * Dist[i];
+		Corners[i * 4 + 0] = C - R - U;
+		Corners[i * 4 + 1] = C + R - U;
+		Corners[i * 4 + 2] = C - R + U;
+		Corners[i * 4 + 3] = C + R + U;
+	}
+
+	FVector Center = FVector::ZeroVector;
+	for (const FVector& P : Corners) Center += P;
+	Center = Center / 8.0f;
+
+	float Radius = 0.0f;
+	for (const FVector& P : Corners)
+		Radius = std::max(Radius, (P - Center).Length());
+
+	if (OutCascadeSettings)
+	{
+		OutCascadeSettings->SplitNear = SplitNear;
+		OutCascadeSettings->SplitFar = SplitFar;
+	}
+
+	return FSphere(Center, Radius);
+}
+
 void FPointLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
 {
 	const auto* PointLightComponent = static_cast<const UPointLightComponent*>(LightComponent);
@@ -33,6 +97,39 @@ void FPointLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out
 	Out.Color = FVector(Color.R, Color.G, Color.B);
 	Out.Intensity = PointLightComponent->GetIntensity();
 	Out.FalloffExponent = PointLightComponent->GetFalloff();
+}
+
+bool FPointLightSceneProxy::GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const
+{
+	const UPointLightComponent* Point = Cast<const UPointLightComponent>(LightComponent);
+
+	const FVector LightPos = Point->GetWorldLocation();
+	const float Radius = Point->GetAttenuationRadius();
+
+	const FRotator Faces[6] =
+	{
+		FRotator{ 0, 0, 0},
+		FRotator{ 0, 180, 0},
+		FRotator{ 0, 90, 0},
+		FRotator{ 0, -90, 0},
+		FRotator{ 90, 0, 0},
+		FRotator{ -90, 0, 0},
+	};
+
+	for (const FRotator& Face : Faces)
+	{
+		FWholeSceneProjectedShadowInitializer& OutInitializer = OutInitializers.AddDefaulted_GetRef();
+		OutInitializer.PreShadowTranslation = -LightPos;
+		OutInitializer.WorldToLight = Face.Quaternion().ToFMatrix().GetTransposed();
+		OutInitializer.Scales = FVector2(1.0f, 1.0f);
+		OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(Radius), Radius);
+		OutInitializer.WAxis = FVector4(0, 0, 1, 0);
+		OutInitializer.MinLightW = 0.1f;
+		OutInitializer.MaxDistanceToCastInLightW = Radius;
+		OutInitializer.bOnePassPointLightShadow = false;
+	}
+
+	return true;
 }
 
 void FSpotLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
@@ -79,6 +176,7 @@ bool FSpotLightSceneProxy::GetWholeSceneProjectedShadowInitializer(const FSceneV
 
 	return true;
 }
+
 
 void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
 {

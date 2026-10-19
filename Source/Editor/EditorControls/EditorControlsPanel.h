@@ -12,7 +12,6 @@
 #include "GameFramework/Actor/SkyLightActor.h"
 #include "GameFramework/Actor/TextRenderActor.h"
 #include "GameFramework/Actor/ExponentialHeightFogActor.h"
-#include "GameFramework/Actor/FireBallActor.h"
 #include "GameFramework/Actor/ProjectileActor.h"
 class FViewportsPanel;
 
@@ -37,7 +36,7 @@ public:
 
 	int32 SelectedIndex = 0;
 
-	const char* Items[6] = {"StaticMesh", "Particle", "Text", "HeightFog", "FireBall", "Projectile" };
+	const char* Items[5] = {"StaticMesh", "Particle", "Text", "HeightFog", "Projectile" };
 
 	FGizmo* Gizmo = nullptr;
 	int32 GizmoSelectedIndex = 0;
@@ -52,7 +51,6 @@ public:
 		AParticleActor::StaticClass(),
 		ATextRenderActor::StaticClass(),
 		AExponentialHeightFogActor::StaticClass(),
-		AFireBallActor::StaticClass(),
 		AProjectileActor::StaticClass(),
 	};
 

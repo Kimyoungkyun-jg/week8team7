@@ -29,6 +29,7 @@ struct FForwardObjectConstants
 	FMatrix View;
 	FMatrix Projection;
 	FMatrix NormalMatrix;
+	FVector4 ObjectFlags;
 };
 
 struct FForwardMaterialConstants
@@ -40,7 +41,7 @@ struct FForwardMaterialConstants
 	FVector4 SpecularColorShininess;
 };
 
-static_assert(sizeof(FForwardObjectConstants) == 256);
+static_assert(sizeof(FForwardObjectConstants) == 272);
 static_assert(sizeof(FForwardMaterialConstants) == 80);
 static_assert(offsetof(FForwardMaterialConstants, SpecularColorShininess) == 64);
 

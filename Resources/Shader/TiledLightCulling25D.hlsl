@@ -74,7 +74,7 @@ void mainCS(uint3 GroupID : SV_GroupID, uint3 DispatchID : SV_DispatchThreadID, 
         {
             float3 CenterVS;
             float CullRadius;
-            if (!LightIntersectsCell(LocalLights[i], Cell, CenterVS, CullRadius))
+            if (!LightIntersectsCell(LocalLights[LocalLightOffset + i], Cell, CenterVS, CullRadius))
                 continue;
 
             // 라이트 구가 덮는 깊이 칸들. 범위 겹침은 위에서 확인했으므로 Lo <= Hi

@@ -83,6 +83,15 @@ class FDirectionalLightSceneProxy : public FLightSceneProxy
 public:
 	using FLightSceneProxy::FLightSceneProxy;
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+
+	virtual bool GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const override;
+	virtual uint32 GetNumViewDependentWholeSceneShadows(const FSceneView& View/*, bool bPrecomputedLightingIsValid*/) const override;
+	virtual bool GetViewDependentWholeSceneProjectedShadowInitializer(
+		const FSceneView& View,
+		int32 InCascadeIndex,
+		//bool bPrecomputedLightingIsValid,
+		FWholeSceneProjectedShadowInitializer& OutInitializer) const override;
+	virtual FSphere GetShadowSplitBounds(const FSceneView& View, int32 InCascadeIndex, FShadowCascadeSettings* OutCascadeSettings) const override;
 };
 
 class FLocalLightSceneProxy : public FLightSceneProxy
@@ -96,6 +105,9 @@ class FPointLightSceneProxy : public FLocalLightSceneProxy
 public:
 	using FLocalLightSceneProxy::FLocalLightSceneProxy;
 	virtual void GetLightShaderParameters(FLightRenderParameters& Out) const override;
+
+	virtual bool GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const override;
+
 };
 
 class FSpotLightSceneProxy : public FPointLightSceneProxy

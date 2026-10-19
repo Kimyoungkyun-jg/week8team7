@@ -3,6 +3,7 @@
 #include "Render/RenderCommand.h"
 #include "Render/Texture2D.h"
 #include "Components/LightComponentBase.h"
+#include "Render/ShadowRendering.h"
 #include <algorithm>
 #include <cstring>
 
@@ -42,6 +43,7 @@ bool FSceneLightResources::Init()
 	if (bInitialized) return true;
 	ForwardLightCB = RenderCommand::CreateConstantBuffer(sizeof(FForwardLightingConstants));
 	DeferredLightCB = RenderCommand::CreateConstantBuffer(sizeof(FDeferredLightConstants));
+	ShadowProjectionLightCB = RenderCommand::CreateConstantBuffer(sizeof(FShadowProjectionConstants));
 	if (!ForwardTileGrid.Init())
 		HTR_LOG(Warning, "Forward tile culling compute shader unavailable");
 
@@ -87,19 +89,3 @@ bool FSceneLightResources::UploadViewLights(const TArray<FLightRenderParameters>
 	return UploadStructured(SceneLightBuffer, Packed.GetData(), Total, sizeof(FLightRenderParameters));
 }
 
-FTexture2D* FSceneLightResources::GetShadowDepthTexture(uint32 Size)
-{
-	if (Size != ShadowDepthTexture->GetWidth())
-	{
-		D3D11_TEXTURE2D_DESC Desc{};
-		Desc.Width = Desc.Height = Size;          // 처음엔 ShadowMapMaxResolution(2048) 고정
-		Desc.MipLevels = Desc.ArraySize = 1;
-		Desc.SampleDesc.Count = 1;
-		Desc.Usage = D3D11_USAGE_DEFAULT;
-		Desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
-		Desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-		ShadowDepthTexture = RenderCommand::CreateTexture2D(Desc);
-	}
-
-	return ShadowDepthTexture.get();
-}

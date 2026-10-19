@@ -316,6 +316,13 @@ void FRenderDevice::CreateStates()
 		Desc.FillMode = D3D11_FILL_WIREFRAME;
 		Desc.CullMode = D3D11_CULL_NONE;
 		Device->CreateRasterizerState(&Desc, RasterizerStates[(uint8)ERasterizerState::Wireframe].GetAddressOf());
+
+		Desc.FillMode = D3D11_FILL_SOLID;
+		Desc.CullMode = D3D11_CULL_BACK;
+		Desc.DepthBias = 1000;
+		Desc.SlopeScaledDepthBias = 2.0f;
+		Desc.DepthBiasClamp = 0.0f;
+		Device->CreateRasterizerState(&Desc, RasterizerStates[(uint8)ERasterizerState::ShadowDepth].GetAddressOf());
 	}
 
 	// ---------- DepthStencil ----------
@@ -391,6 +398,20 @@ void FRenderDevice::CreateStates()
 		Desc.RenderTarget[0].BlendEnable = FALSE;
 		Desc.RenderTarget[0].RenderTargetWriteMask = 0;
 		Device->CreateBlendState(&Desc, BlendStates[(uint8)EBlendState::NoColorWrite].GetAddressOf());
+
+		Desc.RenderTarget[0].BlendEnable = TRUE;
+		Desc.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+		Desc.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+		Desc.RenderTarget[0].BlendOp = D3D11_BLEND_OP_MIN;
+		Desc.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+		Desc.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+		Desc.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_MIN;
+
+		for (uint32 Channel = 0; Channel < 4; ++Channel)
+		{
+			Desc.RenderTarget[0].RenderTargetWriteMask = static_cast<UINT8>(1u << Channel);
+			Device->CreateBlendState(&Desc, BlendStates[(uint8)EBlendState::ShadowMaskR + Channel].GetAddressOf());
+		}
 	}
 
 	// ---------- Sampler ----------
@@ -412,5 +433,13 @@ void FRenderDevice::CreateStates()
 		Desc.AddressW = D3D11_TEXTURE_ADDRESS_WRAP;
 
 		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::LinearWrap].GetAddressOf());
+
+		Desc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT;
+		Desc.AddressU = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.AddressV = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.AddressW = D3D11_TEXTURE_ADDRESS_BORDER;
+		Desc.BorderColor[0] = Desc.BorderColor[1] = Desc.BorderColor[2] = Desc.BorderColor[3] = 1.0f;
+		Desc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
+		Device->CreateSamplerState(&Desc, SamplerStates[(uint8)ESamplerState::ShadowCompare].GetAddressOf());
 	}
 }

@@ -2,6 +2,8 @@
 #include "ShadowRendering.h"
 #include "SceneRenderer.h"
 
+
+
 void FProjectedShadowInfo::SetupWholeSceneProjection(FLightSceneInfo* InLightSceneInfo, const FWholeSceneProjectedShadowInitializer& Initializer, uint32 InResolutionX, uint32 InResolutionY, uint32 InBorderSize)
 {
 	LightSceneInfo = InLightSceneInfo;
@@ -62,7 +64,7 @@ void FProjectedShadowInfo::SetupMeshDrawCommandsForShadowDepth(FSceneRenderer& R
 			Packet.IndexCount = Section.IndexCount;
 			Packet.LODIndex = static_cast<uint8>(LOD);
 			Packet.Slot = InvalidObjectSlot;                      // 물체별 상수를 직접 넣으므로 슬롯 불필요
-					}
+		}
 	}
 	ShadowQueue.Sort();   // 필수: FirstTranslucentIndex를 계산한다
 
@@ -70,4 +72,52 @@ void FProjectedShadowInfo::SetupMeshDrawCommandsForShadowDepth(FSceneRenderer& R
 	FMeshPassProcessor Processor;
 	Processor.Build(ShadowSceneView, ShadowQueue, /*SceneData*/ nullptr,
 		EMeshPassType::CSMShadowDepth, ShadowDepthBatches, ELightingModel::Lambert);
+}
+
+void FSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneInfo* LightSceneInfo)
+{
+	FLightSceneProxy* Proxy = LightSceneInfo->Proxy;
+	FVisibleLightInfo& VisibleLightInfo = RenderData.VisibleLightInfos[LightSceneInfo->Id];
+
+	if (Proxy->GetShadowResolutionScale() <= 0.0f) return;
+
+	TArray<FWholeSceneProjectedShadowInitializer> ProjectedShadowInitializers;
+	if (!Proxy->GetWholeSceneProjectedShadowInitializer(View, ProjectedShadowInitializers)) return;
+
+	const float Desired = ShadowAtlasTile * Proxy->GetShadowResolutionScale();
+	uint32 Size = 1;
+	while (Size << 1 <= static_cast<uint32>(Desired)) Size <<= 1u;
+	Size = std::clamp(Size, 16u, ShadowAtlasTile);
+
+	for (const FWholeSceneProjectedShadowInitializer& Initializer : ProjectedShadowInitializers)
+	{
+		RenderData.ProjectedShadows.Add(MakeUnique<FProjectedShadowInfo>());
+		FProjectedShadowInfo* Shadow = RenderData.ProjectedShadows.Last().get();
+		Shadow->SetupWholeSceneProjection(LightSceneInfo, Initializer, Size, Size, /*Border*/0);
+
+		AddInteractingPrimitives(Shadow);
+		Shadow->SetupMeshDrawCommandsForShadowDepth(*this);
+		if (Shadow->DynamicSubjectPrimitives.Num() == 0) continue;   // 그릴 물체가 없으면 버림 
+
+		VisibleLightInfo.AllProjectedShadows.Add(Shadow);
+		VisibleLightInfo.ShadowsToProject.Add(Shadow);
+	}
+}
+
+void FSceneRenderer::AllocateShadowDepthTargets()
+{
+	constexpr uint32 TilesPerRow = ShadowAtlasSize / ShadowAtlasTile;   // 4 → 16칸
+	uint32 Next = 0;
+	for (FVisibleLightInfo& Info : RenderData.VisibleLightInfos)
+		for (FProjectedShadowInfo* Shadow : Info.ShadowsToProject)
+		{
+			if (Next >= TilesPerRow * TilesPerRow)
+				return;                                  // 꽉 참: 나머지는 bAllocated = false로 남음
+			Shadow->X = (Next % TilesPerRow) * ShadowAtlasTile + ShadowAtlasBorder;
+			Shadow->Y = (Next / TilesPerRow) * ShadowAtlasTile + ShadowAtlasBorder;
+			Shadow->ResolutionX = Shadow->ResolutionY = ShadowAtlasTile - ShadowAtlasBorder * 2;
+			Shadow->BorderSize = ShadowAtlasBorder;
+			Shadow->bAllocated = true;
+			++Next;
+		}
 }

@@ -214,6 +214,23 @@ void FRenderer::EndObjectConstants()
 	if (PerObjectSlotCB) RenderCommand::Unmap(PerObjectSlotCB.get());
 }
 
+FTexture2D* FRenderer::GetShadowAtlas(uint32 Size)
+{
+	if (!ShadowAtlas || Size != ShadowAtlas->GetWidth())
+	{
+		D3D11_TEXTURE2D_DESC Desc{};
+		Desc.Width = Desc.Height = Size;          // 처음엔 ShadowMapMaxResolution(2048) 고정
+		Desc.MipLevels = Desc.ArraySize = 1;
+		Desc.SampleDesc.Count = 1;
+		Desc.Usage = D3D11_USAGE_DEFAULT;
+		Desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+		Desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
+		ShadowAtlas = RenderCommand::CreateTexture2D(Desc);
+	}
+
+	return ShadowAtlas.get();
+}
+
 FOcclusionMeasureResult FRenderer::MeasureDrawVisibility(std::span<const FMeshDrawBatch> Batches)
 {
 	FOcclusionMeasureResult Result;

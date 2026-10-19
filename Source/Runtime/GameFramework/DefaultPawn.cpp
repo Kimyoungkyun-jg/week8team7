@@ -54,7 +54,6 @@ void ADefaultPawn::AddControllerPitchInput(float Value)
 void ADefaultPawn::FireProjectile()
 {
 	if (!GetWorld() || GetWorld()->GetWorldType() != EWorldType::PIE || !CameraComponent) return;
-	if (bUseStaticMeshProjectiles && !ProjectileMesh) return;
 	int32 SelectedIndex = -1;
 	for (int32 Offset = 0; Offset < ProjectilePoolSize; ++Offset)
 	{
@@ -70,12 +69,12 @@ void ADefaultPawn::FireProjectile()
 	}
 	const FVector Forward = CameraComponent->GetWorldRotation().Quaternion().GetForwardVector().Normalized();
 	const FVector Position = CameraComponent->GetWorldLocation() + Forward * 2.0f;
-	if (bUseStaticMeshProjectiles) Projectile->GetStaticMeshComponent()->SetStaticMesh(ProjectileMesh);
-	Projectile->Launch(Position, Forward, bUseStaticMeshProjectiles);
+	// 투사체 메쉬를 고르지 않았으면 기본 구체를 쓴다.
+	Projectile->GetStaticMeshComponent()->SetStaticMesh(ProjectileMesh ? ProjectileMesh : UAssetManager::GetAssetByPath<UStaticMesh>("Sphere"));
+	Projectile->Launch(Position, Forward);
 	if (Projectile->IsInFlight())
 	{
-		HTR_LOG(Info, "FireProjectile: launched slot {} ({})", SelectedIndex,
-			bUseStaticMeshProjectiles ? "StaticMesh" : "FireBall");
+		HTR_LOG(Info, "FireProjectile: launched slot {}", SelectedIndex);
 		NextProjectileIndex = (SelectedIndex + 1) % ProjectilePoolSize;
 	}
 	else

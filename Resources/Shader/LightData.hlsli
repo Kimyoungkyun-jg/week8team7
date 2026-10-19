@@ -16,18 +16,18 @@ struct FLightRenderParameters
     float Radius;
     float3 Color;
     float Intensity;
-    float3 Direction;       // 방향광: 빛의 진행 방향, Spot·Rect: 빛을 내는 방향
+    float3 Direction; // 방향광: 빛의 진행 방향, Spot·Rect: 빛을 내는 방향
     float InnerConeCos;
-    float3 Right;           // Rect 전용
+    float3 Right; // Rect 전용
     float FalloffExponent;
     float OuterConeCos;
     float HalfWidth;
     float HalfHeight;
     uint Type;
-    float BarnDoorCos;      // Rect 전용: 발광면 가장자리의 문(Barn Door)
+    float BarnDoorCos; // Rect 전용: 발광면 가장자리의 문(Barn Door)
     float BarnDoorSin;
     float BarnDoorLength;
-    float Padding;
+    int ShadowMapChannel;
 };
 
 #endif
