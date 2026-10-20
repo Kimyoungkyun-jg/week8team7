@@ -108,7 +108,7 @@ private:
 	std::vector<uint8> ScoreBuckets;         // [물체 번호] = 점수 칸 (1/4 옥타브), 0이면 가림막 후보 아님
 	std::vector<uint8> OccluderLODs;         // [물체 번호], 후보인 물체만 유효
 	std::vector<uint32> HistogramCounts;     // [조각 × 칸] 개수 (조각마다 따로 모아 락 없이 병렬로 센다)
-	std::vector<float> HistogramScores;      // [조각 × 칸] 점수 합 → 화면 넓이 합
+	std::vector<float> HistogramScores;      // [조각 × 칸] 점수 합 -> 화면 넓이 합
 	uint32 HistogramChunks = 0;
 	float CoverageScale = 0.0f;              // 점수 × 이것 = 화면에서 차지하는 비율
 };

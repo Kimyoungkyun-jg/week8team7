@@ -24,7 +24,7 @@ inline void operator<<(FStructuredArchiveSlot Slot, FVector2& V)
 	Stream.EnterElement() << V.Y;
 }
 
-// UE는 USTRUCT 리플렉션으로 멤버 이름을 키로 쓴다 → 같은 결과가 나오게 Record로
+// UE는 USTRUCT 리플렉션으로 멤버 이름을 키로 쓴다 -> 같은 결과가 나오게 Record로
 inline void operator<<(FStructuredArchiveSlot Slot, FVector4& V)
 {
 	FStructuredArchiveRecord Record = Slot.EnterRecord();

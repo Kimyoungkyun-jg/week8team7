@@ -19,19 +19,60 @@ void FProjectedShadowInfo::SetupWholeSceneProjection(FLightSceneInfo* InLightSce
 	MinSubjectZ = Initializer.MinLightW;
 	MaxSubjectZ = Initializer.MaxDistanceToCastInLightW;
 
-	// View: "라이트를 원점으로 옮기고(PreShadowTranslation) → 라이트 방향으로 돌린다(WorldToLight)"
+	// 그림자 카메라를 텍셀 한 칸 단위로만 움직이게 해서, 텍셀 격자가 항상 월드의 같은 자리에 놓이게 한다
+	// View: "라이트를 원점으로 옮기고(PreShadowTranslation) -> 라이트 방향으로 돌린다(WorldToLight)"
 	// 엔진 투영 행렬이 X를 앞쪽으로 받으므로 언리얼의 FaceMatrix는 곱하지 않는다.
+	if (Initializer.WAxis.W == 1.0f)   // Directional
+	{
+		const float Radius = 1.0f / Initializer.Scales.X;                  // 정사영 폭의 절반
+		const float SnapResolution = static_cast<float>(ShadowAtlasTile - ShadowAtlasBorder * 2);   // 실제로 그리는 해상도
+		const float TexelWorld = 2.0f * Radius / SnapResolution;
+
+		// 월드 -> 라이트 공간 (회전만). X가 깊이, Y/Z가 그림자 맵의 가로/세로
+		FVector LightSpace = Initializer.WorldToLight.TransformPosition(-PreShadowTranslation);
+		LightSpace.Y = std::floor(LightSpace.Y / TexelWorld) * TexelWorld;
+		LightSpace.Z = std::floor(LightSpace.Z / TexelWorld) * TexelWorld;
+
+		// 라이트 -> 월드 (회전의 역 = 전치)
+		PreShadowTranslation = -Initializer.WorldToLight.GetTransposed().TransformPosition(LightSpace);
+	}
 	ShadowView = FMatrix::MakeTranslation(PreShadowTranslation) * Initializer.WorldToLight;
 
-	// Projection: Scales = 1 / tan(반각) → FOV(도) = 2 * atan(1 / Scales)
+	// Projection: Scales = 1 / tan(반각) -> FOV(도) = 2 * atan(1 / Scales)
 	const float FOV = FMath::RadiansToDegrees(2.0f * std::atan(1.0f / Initializer.Scales.X));
-	ShadowProjection = FMatrix::MakePerspectiveLH(FOV, 1.0f, MinSubjectZ, MaxSubjectZ);
+	if (Initializer.WAxis.W == 1.0f)
+	{
+		bDirectionalLight = true;
+		ShadowProjection = FMatrix::MakeOrthographLH(2.0f / Initializer.Scales.X, 2.0f / Initializer.Scales.Y, MinSubjectZ, MaxSubjectZ);
+	}
+	else
+	{
+		ShadowProjection = FMatrix::MakePerspectiveLH(FOV, 1.0f, MinSubjectZ, MaxSubjectZ);
+	}
 
 	ShadowViewProjection = ShadowView * ShadowProjection;   // 카메라와 같은 View * Proj 순서
 	CasterFrustum = ExtractFrustumPlanes(ShadowViewProjection);
 
 	// 언리얼(Directional이 아닐 때): 라이트 위치 중심, SubjectBounds 반지름
 	ShadowBounds = FSphere(PreShadowTranslation * -1.0f, Initializer.SubjectBounds.SphereRadius);
+}
+
+float FProjectedShadowInfo::GetShaderDepthBias() const
+{
+	const float UserBias = LightSceneInfo->Proxy->GetUserShadowBias();
+	const float DepthRange = MaxSubjectZ - MinSubjectZ;
+
+	if (bDirectionalLight)
+	{
+		const float TexelWorld = 2.0f * ShadowBounds.Radius / ResolutionX;
+		return 3.0f * UserBias * TexelWorld / DepthRange;
+	}
+	else
+	{
+		return 0.0005f;
+	}
+
+	return 0.0f;
 }
 
 void FProjectedShadowInfo::SetupMeshDrawCommandsForShadowDepth(FSceneRenderer& Renderer)
@@ -104,9 +145,40 @@ void FSceneRenderer::CreateWholeSceneProjectedShadow(FLightSceneInfo* LightScene
 	}
 }
 
+void FSceneRenderer::CreateViewDependentWholeSceneShadows(FLightSceneInfo* LightSceneInfo)
+{
+	FLightSceneProxy* Proxy = LightSceneInfo->Proxy;
+	FVisibleLightInfo& VisibleLightInfo = RenderData.VisibleLightInfos[LightSceneInfo->Id];
+
+	if (Proxy->GetShadowResolutionScale() <= 0.0f) return;
+
+	const float Desired = ShadowAtlasTile * Proxy->GetShadowResolutionScale();
+	uint32 Size = 1;
+	while (Size << 1 <= static_cast<uint32>(Desired)) Size <<= 1u;
+	Size = std::clamp(Size, 16u, ShadowAtlasTile);
+
+	const uint32 NumCascades = Proxy->GetNumViewDependentWholeSceneShadows(View);
+	for (uint32 Cascade = 0; Cascade < NumCascades; ++Cascade)
+	{
+		FWholeSceneProjectedShadowInitializer ProjectedShadowInitializer;
+		if (!Proxy->GetViewDependentWholeSceneProjectedShadowInitializer(View, Cascade, ProjectedShadowInitializer)) continue;
+
+		RenderData.ProjectedShadows.Add(MakeUnique<FProjectedShadowInfo>());
+		FProjectedShadowInfo* Shadow = RenderData.ProjectedShadows.Last().get();
+		Shadow->SetupWholeSceneProjection(LightSceneInfo, ProjectedShadowInitializer, Size, Size, /*Border*/0);
+
+		AddInteractingPrimitives(Shadow);
+		Shadow->SetupMeshDrawCommandsForShadowDepth(*this);
+		if (Shadow->DynamicSubjectPrimitives.Num() == 0) continue;   // 그릴 물체가 없으면 버림 
+
+		VisibleLightInfo.AllProjectedShadows.Add(Shadow);
+		VisibleLightInfo.ShadowsToProject.Add(Shadow); 
+	}
+}
+
 void FSceneRenderer::AllocateShadowDepthTargets()
 {
-	constexpr uint32 TilesPerRow = ShadowAtlasSize / ShadowAtlasTile;   // 4 → 16칸
+	constexpr uint32 TilesPerRow = ShadowAtlasSize / ShadowAtlasTile;   // 4 -> 16칸
 	uint32 Next = 0;
 	for (FVisibleLightInfo& Info : RenderData.VisibleLightInfos)
 		for (FProjectedShadowInfo* Shadow : Info.ShadowsToProject)

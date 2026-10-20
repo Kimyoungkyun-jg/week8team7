@@ -89,14 +89,14 @@ bool IsOccluded(FCullItem Item)
 		const float3 Sign = float3((c & 1) ? 1.0f : -1.0f, (c & 2) ? 1.0f : -1.0f, (c & 4) ? 1.0f : -1.0f);
 		const float4 Clip = mul(float4(Item.Center + Item.Extent * Sign, 1.0f), ViewProjection);
 		if (Clip.w <= 1e-5f || Clip.z < 0.0f)
-			return false;                   // 근평면에 걸침 → 보이는 것으로
+			return false;                   // 근평면에 걸침 -> 보이는 것으로
 		const float3 Ndc = Clip.xyz / Clip.w;
 		NdcMin = min(NdcMin, Ndc.xy);
 		NdcMax = max(NdcMax, Ndc.xy);
 		MinZ = min(MinZ, Ndc.z);
 	}
 
-	// NDC → 화면 UV (y는 아래로)
+	// NDC -> 화면 UV (y는 아래로)
 	float2 UvMin = float2(NdcMin.x * 0.5f + 0.5f, 0.5f - NdcMax.y * 0.5f);
 	float2 UvMax = float2(NdcMax.x * 0.5f + 0.5f, 0.5f - NdcMin.y * 0.5f);
 	if (UvMax.x <= 0.0f || UvMax.y <= 0.0f || UvMin.x >= 1.0f || UvMin.y >= 1.0f)
@@ -124,7 +124,7 @@ bool IsOccluded(FCullItem Item)
 		for (int X = T0.x; X <= T1.x; ++X)
 			MaxDepth = max(MaxDepth, HiZ.Load(int3(X, Y, Level)));
 
-	// 물체의 가장 가까운 점조차 그 영역의 가장 먼 가림막보다 뒤 → 완전히 가려짐
+	// 물체의 가장 가까운 점조차 그 영역의 가장 먼 가림막보다 뒤 -> 완전히 가려짐
 	return MinZ > MaxDepth;
 }
 
@@ -383,7 +383,7 @@ bool FGPUOcclusion::FillItems(const FPrimitiveSceneProxy* const* Proxies, uint32
 	ScoreBuckets.resize(Count);
 	OccluderLODs.resize(Count);
 
-	// 점수 → 화면에서 차지하는 비율. 타원 넓이 π·rx·ry를 NDC 화면 넓이 4로 나눈 것 (r² ≈ Extent²/3, 구에 가까운 물체 기준).
+	// 점수 -> 화면에서 차지하는 비율. 타원 넓이 π·rx·ry를 NDC 화면 넓이 4로 나눈 것 (r² ≈ Extent²/3, 구에 가까운 물체 기준).
 	// ScaleX·ScaleY = (둘 중 큰 쪽)² × 짧은 변/긴 변
 	const float Aspect = static_cast<float>(std::min(View.Width, View.Height)) / static_cast<float>(std::max(View.Width, View.Height));
 	CoverageScale = 3.14159265f / 12.0f * View.ProjectionScaleSquared * Aspect;
@@ -446,7 +446,7 @@ void FGPUOcclusion::DrawOccluders(const FPrimitiveSceneProxy* const* Proxies, co
 
 	{
 	// 가림막 고르기: 화면에 크게 보이는 것부터 넓이를 쌓아, 화면 OccluderCoverage장분을 덮거나 MaxOccluders개가 되면 멈춘다.
-	//  - 가까이 가면 사과 하나하나가 커서 몇백 개면 화면이 덮인다 → 가림막이 적어져 선행 패스가 싸다.
+	//  - 가까이 가면 사과 하나하나가 커서 몇백 개면 화면이 덮인다 -> 가림막이 적어져 선행 패스가 싸다.
 	//  - 멀리서 보면 사과가 작아 많이 뽑힌다 (여러 겹이 함께 가리므로 많이 필요).
 	// 점수 칸 히스토그램을 위에서부터 누적해 커트라인 칸(Cut)을 잡는다. 정렬이 필요 없다.
 	const uint32 Count = static_cast<uint32>(ScoreBuckets.size());

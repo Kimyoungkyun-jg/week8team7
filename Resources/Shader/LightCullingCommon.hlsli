@@ -98,7 +98,7 @@ void BuildCellAABB(uint2 Tile, float Near, float Far, out float3 Min, out float3
 
     if (bOrthographic)
     {
-        // clip.x = Y * XScale + XOffset  →  Y = (u - XOffset) / XScale
+        // clip.x = Y * XScale + XOffset  ->  Y = (u - XOffset) / XScale
         const float YMin = (L - Projection[3][0]) / Projection[1][0];
         const float YMax = (R - Projection[3][0]) / Projection[1][0];
         const float ZMin = (B - Projection[3][1]) / Projection[2][1];

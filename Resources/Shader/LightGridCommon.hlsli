@@ -37,7 +37,7 @@ cbuffer LightGridConstants : register(b3)
 // 라이트 번호는 SceneLights의 로컬 광원 구간(포인트 시작 위치) 기준이다.
 StructuredBuffer<uint> CellLightIndices : register(t9);
 
-// 깊이 버퍼 값(0~1) → View 깊이(X)
+// 깊이 버퍼 값(0~1) -> View 깊이(X)
 float GridDeviceZToViewDepth(float DeviceZ)
 {
     return bGridOrthographic ? (DeviceZ - GridProjZOffset) / GridProjZScale // 직교: ndc.z = X·ZScale + ZOffset

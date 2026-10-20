@@ -21,7 +21,7 @@ void FStructuredArchive::Close()
 	if (CurrentScope.Num() == 0)
 		return;
 	SetScope(FSlot(*this, 0, RootElementId));
-	CurrentScope.RemoveLast();          // Root 제거 → Close를 다시 불러도 안전
+	CurrentScope.RemoveLast();          // Root 제거 -> Close를 다시 불러도 안전
 }
 
 void FStructuredArchive::EnterSlot(const FSlotBase& Slot, bool bEnteringAttributedValue)
@@ -160,7 +160,7 @@ FStructuredArchiveMap FStructuredArchiveSlot::EnterMap(int32& Num)
 	return FStructuredArchiveMap(StructuredArchive, NewDepth, ElementId);
 }
 
-// 값 쓰기: 슬롯 진입 확인 → 포맷터에 값 전달 → 슬롯에서 바로 나온다
+// 값 쓰기: 슬롯 진입 확인 -> 포맷터에 값 전달 -> 슬롯에서 바로 나온다
 void FStructuredArchiveSlot::operator<<(uint8& V)
 {
 	StructuredArchive.EnterSlot(*this);

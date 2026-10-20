@@ -30,7 +30,7 @@ namespace
 
 	// Camera Control
 	constexpr float OrbitSensitivity = 0.3f;        // 픽셀당 도
-	constexpr float MaxPitch = 89.0f;               // 90°면 Forward와 WorldUp이 평행 → Cross가 0
+	constexpr float MaxPitch = 89.0f;               // 90°면 Forward와 WorldUp이 평행 -> Cross가 0
 	constexpr float ZoomStep = 0.9f;                // 휠 한 칸당 거리 배율
 	constexpr float WheelDeltaPerNotch = 120.0f;    // Win32 WHEEL_DELTA
 	constexpr float MinCameraDistance = 0.01f;

@@ -6,6 +6,8 @@
 #include "Render/LightSceneInfo.h"
 #include "Render/SceneView.h"
 
+class UDirectionalLightComponent;
+
 struct FSceneView;
 // MSVC 최적화
 // 가상함수 테이블과 패딩 방지
@@ -14,6 +16,7 @@ class FLightSceneProxyFixLayout
 public:
 	virtual ~FLightSceneProxyFixLayout() = default;
 };
+
 
 class FLightSceneProxy : public FLightSceneProxyFixLayout
 {
@@ -30,6 +33,7 @@ public:
 	virtual ~FLightSceneProxy() = default;
 
 	virtual void GetLightShaderParameters(FLightRenderParameters& OutParameters) const = 0;
+	virtual float GetLightSourceAngle() const { return 0.0f; }
 
 	inline const ULightComponent* GetLightComponent() const { return LightComponent; }
 	inline bool IsVisible() const { return LightComponent ? LightComponent->IsVisible() : false; }
@@ -81,10 +85,11 @@ private:
 class FDirectionalLightSceneProxy : public FLightSceneProxy
 {
 public:
-	using FLightSceneProxy::FLightSceneProxy;
+	FDirectionalLightSceneProxy(const UDirectionalLightComponent* InComponent);
+
 	void GetLightShaderParameters(FLightRenderParameters& Out) const override;
 
-	virtual bool GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const override;
+	//virtual bool GetWholeSceneProjectedShadowInitializer(const FSceneView& ViewFamily, TArray<FWholeSceneProjectedShadowInitializer>& OutInitializers) const override;
 	virtual uint32 GetNumViewDependentWholeSceneShadows(const FSceneView& View/*, bool bPrecomputedLightingIsValid*/) const override;
 	virtual bool GetViewDependentWholeSceneProjectedShadowInitializer(
 		const FSceneView& View,
@@ -92,6 +97,18 @@ public:
 		//bool bPrecomputedLightingIsValid,
 		FWholeSceneProjectedShadowInitializer& OutInitializer) const override;
 	virtual FSphere GetShadowSplitBounds(const FSceneView& View, int32 InCascadeIndex, FShadowCascadeSettings* OutCascadeSettings) const override;
+
+	virtual float GetLightSourceAngle() const override { return LightSourceAngle; }
+	float LightSourceAngle = 0.0f;   // 생성자에서 InComponent->LightSourceAngle 복사
+
+	float GetSplitDistance(const FSceneView& View, uint32 SplitIndex) const;
+
+	// 카메라에서 이 거리까지만 동적그림자를 그리겠다
+	float  DynamicShadowDistanceMovableLight;
+	// Cascade 개수
+	uint32 DynamicShadowCascades;
+	float  CascadeDistributionExponent;
+	float CascadeTransitionFraction;
 };
 
 class FLocalLightSceneProxy : public FLightSceneProxy

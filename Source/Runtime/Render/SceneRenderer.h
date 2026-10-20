@@ -80,6 +80,7 @@ public:
 	bool IsLightInView(FLightSceneProxy* Proxy);
 
 	void CreateWholeSceneProjectedShadow(FLightSceneInfo* LightSceneInfo);
+	void CreateViewDependentWholeSceneShadows(FLightSceneInfo* LightSceneInfo);
 
 	void AllocateShadowDepthTargets();
 	

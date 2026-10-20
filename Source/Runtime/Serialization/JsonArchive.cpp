@@ -31,7 +31,7 @@ bool FJsonArchive::SaveWorldToBytes(UWorld* World, TArray<uint8>& OutBytes)
 
 	FMemoryWriter Writer(OutBytes);
 	{
-		// 선언 순서 = 소멸 역순: Ar(Close) → Formatter(dump → Writer)
+		// 선언 순서 = 소멸 역순: Ar(Close) -> Formatter(dump -> Writer)
 		FJsonArchiveOutputFormatter Formatter(Writer);
 		FStructuredArchive Ar(Formatter);
 
@@ -299,7 +299,7 @@ bool FJsonArchive::LoadWorld(UWorld* World, const FString& Path)
 //		}
 //		Actor->Serialize(ActorJson["Properties"], true);
 //
-//		for (json& ComponentJson : ActorJson["Components"])       // json → json&
+//		for (json& ComponentJson : ActorJson["Components"])       // json -> json&
 //		{
 //			const FName Name(ComponentJson["Name"].get<FString>());
 //

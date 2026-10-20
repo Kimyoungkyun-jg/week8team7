@@ -60,8 +60,8 @@ bool UBenchmarkEngine::Init()
 		return false;
 	}
 
-	// 이 사과 OBJ들은 Z-up으로 만들어져 있어, 임포터의 OBJ 표준(Y-up) → 엔진(Z-up) 변환을 거치면 꼭지가 -X로 눕는다.
-	// Y축 기준 회전으로 -X → +Z가 되게 세운다 (LOD·피킹 BVH가 새 방향으로 만들어지도록 LOD 생성 전에 한다).
+	// 이 사과 OBJ들은 Z-up으로 만들어져 있어, 임포터의 OBJ 표준(Y-up) -> 엔진(Z-up) 변환을 거치면 꼭지가 -X로 눕는다.
+	// Y축 기준 회전으로 -X -> +Z가 되게 세운다 (LOD·피킹 BVH가 새 방향으로 만들어지도록 LOD 생성 전에 한다).
 	const auto StandUp = [](const FVector& V) { return FVector(V.Z, V.Y, -V.X); };
 	for (const char* ApplePath : { "Assets/Data/apple_mid.obj", "Assets/Data/bitten_apple_mid.obj" })
 	{
@@ -341,7 +341,7 @@ void UBenchmarkEngine::Tick(float DeltaTime)
 	const FVector CameraLocation = Camera->GetWorldLocation();
 	const FVector CameraForward = Camera->GetTransform().GetForward();
 
-	// 반투명이 Grid 위에 합성되도록 불투명 → Grid → 반투명 순서로 그린다.
+	// 반투명이 Grid 위에 합성되도록 불투명 -> Grid -> 반투명 순서로 그린다.
 	{
 		SCOPE_CYCLE_COUNTER(STAT_RenderOpaqueTotal);
 		Renderer->RenderQueueSorting(RenderQueue, ViewProjection, CameraLocation);
@@ -536,7 +536,7 @@ void UBenchmarkEngine::DrawProfileOverlay()
 				ImGui::Text("GPU occluded draws: %u, False culls: %u (must be 0)", M.GPUOccludedDraws, M.FalseCulls);
 		}
 
-		// GPU 오클루전 컬링: 가림막 깊이 → Hi-Z → 물체별 판정 → CPU로 읽어 Gather 전에 거름
+		// GPU 오클루전 컬링: 가림막 깊이 -> Hi-Z -> 물체별 판정 -> CPU로 읽어 Gather 전에 거름
 		FGPUOcclusion& GPUOcclusion = GetEngineLoop().GetRenderer()->GetGPUOcclusion();
 		FGPUOcclusionSettings& Occlusion = GPUOcclusion.GetSettings();
 		ImGui::Checkbox("GPU Occlusion Culling", &Occlusion.bEnabled);

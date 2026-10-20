@@ -17,7 +17,7 @@
 
 namespace
 {
-	// OBJ (오른손, Y-Up) → 엔진 (왼손, X-Forward, Y-Right, Z-Up)
+	// OBJ (오른손, Y-Up) -> 엔진 (왼손, X-Forward, Y-Right, Z-Up)
 	// 삼각형 winding도 함께 뒤집어야 한다
 	FVector ToEngine(const FVector& V)
 	{
@@ -460,7 +460,7 @@ bool FObjImporter::Cook(const FObjInfo& Raw, FStaticMeshData& Out)
 				});
 			}
 
-			// 삼각형 분할 (fan). OBJ는 CCW, 엔진은 CW가 앞면이라 (0, k, k+1) → (0, k+1, k)
+			// 삼각형 분할 (fan). OBJ는 CCW, 엔진은 CW가 앞면이라 (0, k, k+1) -> (0, k+1, k)
 			for (int32 k = 1; k + 1 < Corners.Num(); ++k)
 			{
 				Cooked.Indices.Add(Corners[0]);

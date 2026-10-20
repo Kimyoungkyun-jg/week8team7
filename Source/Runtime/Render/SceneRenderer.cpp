@@ -116,6 +116,15 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 		FLightRenderParameters Parameters{};
 		Light->GetLightShaderParameters(Parameters);
 		Parameters.ShadowMapChannel = -1;
+		const FLightSceneInfo* Info = Light->GetLightSceneInfo();
+		if (Info && Info->GetDynamicShadowMapChannel() >= 0)
+		{
+			FVisibleLightInfo& VisibleInfo = RenderData.VisibleLightInfos[Info->Id];
+			if (!VisibleInfo.ShadowsToProject.IsEmpty())
+			{
+				Parameters.ShadowMapChannel = Info->GetDynamicShadowMapChannel();
+			}
+		}
 		RenderData.VisibleLights.Add(Parameters);
 	}
 
@@ -136,8 +145,6 @@ void FSceneRenderer::InitViews(FRenderer* Renderer)
 		}
 		RenderData.VisibleLights.Add(Parameters);
 	}
-
-
 
 	if (RenderData.ViewLightResources.Init())
 		bLightUploadSucceeded = RenderData.ViewLightResources.UploadViewLights(RenderData.VisibleLights, LightCounts, LightOffsets);
@@ -166,7 +173,7 @@ void FSceneRenderer::InitDynamicShadows()
 		// 라이트 범위로 정해지는 그림자 (Spot / Point / Rect)
 		else
 		{
-			CreateWholeSceneProjectedShadow(Info);       
+			CreateWholeSceneProjectedShadow(Info);
 		}
 	}
 	AllocateShadowDepthTargets();
@@ -338,7 +345,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 					{
 						Batch.Pipeline = *DepthPipeline;
 						Batch.Pipeline.Shader = &DepthProgram;
-						Batch.Pipeline.RasterizerState = ERasterizerState::ShadowDepth; 
+						Batch.Pipeline.RasterizerState = ERasterizerState::ShadowDepth;
 					}
 					Renderer->DrawMeshes(Batches);
 				}
@@ -550,7 +557,7 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 			if (!Graph.AddRasterPass(std::move(Proj), [this, Renderer, &Graph, Depth, ShadowRef, ShadowMap, Width, Height]
 				{
 					FPipelineState* Pipeline = FRenderResourceManager::GetPSO(EPSOType::ShadowProjection);
-					
+
 					FConstantBuffer* CB = RenderData.ViewLightResources.GetShadowProjectionConstants();
 					if (!Pipeline || !Pipeline->Shader || !CB || !ShadowMap) return;
 
@@ -566,8 +573,27 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 							C.ShadowViewProjection = Shadow->ShadowViewProjection;
 							C.ShadowUVScaleOffset = FVector4(Shadow->ResolutionX / MapSize, Shadow->ResolutionY / MapSize,
 								Shadow->X / MapSize, Shadow->Y / MapSize);
-							C.ShadowParams = FVector4(1.0f / MapSize, 0.0f, 0.0f, 0.0f);
+							C.ShadowParams = FVector4(1.0f / MapSize, Shadow->GetShaderDepthBias(), 0.0f, 0.0f);
 							C.ViewportSize = FVector4(static_cast<float>(Width), static_cast<float>(Height), 0.0f, 0.0f);
+							C.CascadeParams = Shadow->bDirectionalLight
+								? FVector4(Shadow->CascadeSettings.SplitNear, Shadow->CascadeSettings.SplitFar, 0.0f, 0.0f)
+								: FVector4(0.0f, FLT_MAX, 0.0f, 0.0f);   // 구간 제한 없음
+							C.CameraPosition = FVector4(View.ViewLocation, 1.0f);
+							C.CameraForward = FVector4(View.ViewForward);
+							if (Shadow->bDirectionalLight)
+							{
+								// 언리얼: GetLightSourceAngle은 전체 각도 -> 절반의 tan
+								const float TanHalf = std::tan(0.5f * FMath::DegreesToRadians(
+									Shadow->LightSceneInfo->Proxy->GetLightSourceAngle()));
+								const float SW = 2.0f * Shadow->ShadowBounds.Radius;              // 그림자 맵 폭 (월드)
+								const float SZ = Shadow->MaxSubjectZ - Shadow->MinSubjectZ;       // 깊이 범위 (월드)
+								constexpr float MaxKernelTexels = 40.0f;                         // 언리얼 r.Shadow.MaxSoftKernelSize 기본값
+								C.PCSSParams = FVector4(TanHalf * SZ / SW, MaxKernelTexels / Shadow->ResolutionX, 0.0f, 0.0f);
+							}
+							else
+							{
+								C.PCSSParams = FVector4(0.0f, 0.0f, 0.0f, 0.0f);   // Spot/Point는 기존 3×3 PCF
+							}
 
 							Renderer->UpdateConstant(CB, &C, sizeof(C));
 							Renderer->BindPixelConstant(0, CB);
@@ -894,7 +920,7 @@ void FSceneRenderer::GatherRenderPackets(FScene& Scene, FSceneRenderData& Data,
 					uint32 Slot = InvalidObjectSlot;
 					if (bPrepareObjectSlots)
 					{
-						// 칸 VisibleIndex는 이 반복만 쓴다 → 스레드끼리 겹치지 않음
+						// 칸 VisibleIndex는 이 반복만 쓴다 -> 스레드끼리 겹치지 않음
 						const FPerObjectConstants Constants =
 							MakePerObjectConstants(Proxy->GetLocalToWorld());
 

@@ -65,7 +65,7 @@ private:
 		float SliceBias = 0.0f;
 		uint32 TileSize = 0;
 		uint32 bOrthographic = 0;
-		float ProjZScale = 0.0f;	// Projection[0][2]. DeviceZ → View 깊이 복원에 쓴다
+		float ProjZScale = 0.0f;	// Projection[0][2]. DeviceZ -> View 깊이 복원에 쓴다
 		float ProjZOffset = 0.0f;	// Projection[3][2]
 		uint32 NumLocalLights = 0;
 		uint32 Padding[3]{};

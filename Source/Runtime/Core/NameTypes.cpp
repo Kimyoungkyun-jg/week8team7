@@ -73,7 +73,7 @@ FString FName::ToString() const
 	// 내부 Number 0 = 번호 없음
 	if (Number > 0)
 	{
-		// 내부 1 → 화면 _0
+		// 내부 1 -> 화면 _0
 		Result += "_" + std::to_string(Number - 1);
 	}
 

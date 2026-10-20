@@ -213,16 +213,26 @@ FLightContribution CalcLocalLight(FLightRenderParameters Light, float3 N, float3
 FLightContribution AccumulateDirectLighting(float3 N, float3 V, float3 WorldPos, float InShininess, float4 SvPosition, bool bUseLightGrid)
 {
     FLightContribution Total = (FLightContribution) 0;
+    float4 ShadowFactors = 1.0f;
+    
+    if (bUseLightGrid)
+        ShadowFactors = ShadowMask.Load(int3((int2) SvPosition.xy, 0));
+    
     for (uint DirectionalIndex = 0; DirectionalIndex < LightCounts.z; ++DirectionalIndex)
     {
-        const FLightContribution LightContribution = CalcDirectionalLight(SceneLights[LightOffsets.z + DirectionalIndex], N, V, InShininess);
+        const FLightRenderParameters Light = SceneLights[LightOffsets.z + DirectionalIndex];
+        FLightContribution LightContribution = CalcDirectionalLight(SceneLights[LightOffsets.z + DirectionalIndex], N, V, InShininess);
+        
+        if (Light.ShadowMapChannel >= 0 && ObjectFlags.x > 0.5f)
+        {
+            const float Shadow = ShadowFactors[Light.ShadowMapChannel];
+            LightContribution.Diffuse *= Shadow;
+            LightContribution.Specular *= Shadow;
+        }
+        
         Total.Diffuse += LightContribution.Diffuse;
         Total.Specular += LightContribution.Specular;
     }
-    
-    float4 ShadowFactors = 1.0f;
-    if (bUseLightGrid)
-        ShadowFactors = ShadowMask.Load(int3((int2) SvPosition.xy, 0));
 
     uint LightCount = GetNumLocalLights();
     uint CellOffset = 0;

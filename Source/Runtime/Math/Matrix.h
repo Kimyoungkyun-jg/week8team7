@@ -65,6 +65,7 @@ public:
 
 	static FMatrix MakeView(const FVector& Position, const FRotator& Rotation);
 	static FMatrix MakePerspectiveLH(float FOV, float AspectRatio, float Near, float Far);
+	static FMatrix MakeOrthographLH(float Width, float Height, float Near, float Far);
 
 /* Operator */
 

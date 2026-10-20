@@ -335,7 +335,7 @@ void UWorld::GatherRenderPackets(FRenderQueue& RenderQueue, const FViewContext* 
 					uint32 Slot = InvalidObjectSlot;
 					if (SlotDest)
 					{
-						// 칸 VisibleIndex는 이 반복만 쓴다 → 스레드끼리 겹치지 않음
+						// 칸 VisibleIndex는 이 반복만 쓴다 -> 스레드끼리 겹치지 않음
 						WritePerObjectConstants(SlotDest + size_t(VisibleIndex) * ObjectSlotBytes,
 							Proxy->GetLocalToWorld(), Proxy->GetWorldToLocal());
 						Slot = VisibleIndex;

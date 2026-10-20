@@ -94,8 +94,14 @@ void ULevel::Serialize(FStructuredArchive::FRecord Record)
 			HTR_LOG(Warning, "Load: unknown actor class '{}', skipped", ClassName);
 			continue;
 		}
-		AActor* Actor = ActorName.empty() ? OwningWorld->SpawnActor(Class)
-			: OwningWorld->SpawnActor(Class, FName(ActorName));
+
+		FName Name = ActorName.empty() ? NAME_None : FName(ActorName);
+		if (!Name.IsNone() && StaticFindObjectFast(nullptr, this, Name))
+		{
+			HTR_LOG(Warning, "Load: duplicate actor name '{}', renamed", ActorName);
+			Name = NAME_None;
+		}
+		AActor* Actor = OwningWorld->SpawnActor(Class, Name);
 
 		if (Actor)
 		{

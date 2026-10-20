@@ -109,7 +109,13 @@ FName MakeUniqueObjectName(UObject* Outer, const UClass* Class, FName BaseName)
 	}
 
 	const FString Base = BaseName.ToString();
-	return FName(Base + "_" + std::to_string(Class->ClassUnique++));
+	FName Candidate;
+	do
+	{
+		Candidate = FName(Base + "_" + std::to_string(Class->ClassUnique++));
+	} while (StaticFindObjectFast(nullptr, Outer, Candidate) != nullptr);
+
+	return Candidate;
 }
 
 UObject* StaticDuplicateObject(UObject const* SourceObject, UObject* DestOuter, const FName DestName, EObjectFlags FlagMask, UClass* DestClass)

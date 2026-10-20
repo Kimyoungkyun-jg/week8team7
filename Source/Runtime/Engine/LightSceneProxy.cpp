@@ -6,6 +6,37 @@
 #include "Components/SpotLightComponent.h"
 #include "Components/RectLightComponent.h"
 
+namespace
+{
+	static float ComputeAccumulatedScale(float Exponent, int32 CascadeIndex, int32 CascadeCount)
+	{
+		if (CascadeIndex <= 0) return 0.0f;
+		float CurrentScale = 1.0f;
+		// 모든 캐스케이드 가중치의 합
+		float TotalScale = 0.0f;
+		// CascadeIndex 앞에 있는 캐스케이드 가중치의 합
+		float Ret = 0.0f;
+		for (int32 i = 0; i < CascadeCount; ++i)
+		{
+			if (i < CascadeIndex) Ret += CurrentScale;
+			TotalScale += CurrentScale;
+			CurrentScale *= Exponent;
+		}
+		return Ret / TotalScale;
+	}
+}
+
+FDirectionalLightSceneProxy::FDirectionalLightSceneProxy(const UDirectionalLightComponent* InComponent)
+	:FLightSceneProxy(InComponent)
+{
+	if (!InComponent) return;
+	DynamicShadowDistanceMovableLight = InComponent->DynamicShadowDistanceMovableLight;
+	DynamicShadowCascades = InComponent->DynamicShadowCascades;
+	CascadeDistributionExponent = InComponent->CascadeDistributionExponent;
+	CascadeTransitionFraction = InComponent->CascadeTransitionFraction;
+	LightSourceAngle = InComponent->LightSourceAngle;
+}
+
 void FDirectionalLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
 {
 	const UDirectionalLightComponent* Dir = static_cast<const UDirectionalLightComponent*>(LightComponent);
@@ -23,20 +54,23 @@ void FDirectionalLightSceneProxy::GetLightShaderParameters(FLightRenderParameter
 
 uint32 FDirectionalLightSceneProxy::GetNumViewDependentWholeSceneShadows(const FSceneView& View) const
 {
-	return uint32();
+	// 거리 0이면 동적 그림자 끔 (언리얼 주석: "A value of 0 disables the dynamic shadow")
+	return DynamicShadowDistanceMovableLight > 0.0f ? DynamicShadowCascades : 0;
 }
 
 bool FDirectionalLightSceneProxy::GetViewDependentWholeSceneProjectedShadowInitializer(const FSceneView& View, int32 InCascadeIndex, FWholeSceneProjectedShadowInitializer& OutInitializer) const
 {
+	const UDirectionalLightComponent* Dir = static_cast<const UDirectionalLightComponent*>(LightComponent);
+
 	const FSphere Bounds = GetShadowSplitBounds(View, InCascadeIndex, &OutInitializer.CascadeSettings);
 	const float R = Bounds.Radius;
 
 	OutInitializer.PreShadowTranslation = -Bounds.Center;
-	OutInitializer.WorldToLight = View.ViewRotation.Quaternion().ToFMatrix().GetTransposed();
-	OutInitializer.Scales = FVector2(1.0f/R, 1.0f/R);
+	OutInitializer.WorldToLight = Dir->GetWorldRotation().Quaternion().ToFMatrix().GetTransposed();
+	OutInitializer.Scales = FVector2(1.0f / R, 1.0f / R);
 	OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(R), R);
 	OutInitializer.WAxis = FVector4(0, 0, 0, 1);
-	OutInitializer.MinLightW = -R;
+	OutInitializer.MinLightW = -R * 2;
 	OutInitializer.MaxDistanceToCastInLightW = R;
 
 	return true;
@@ -44,8 +78,8 @@ bool FDirectionalLightSceneProxy::GetViewDependentWholeSceneProjectedShadowIniti
 
 FSphere FDirectionalLightSceneProxy::GetShadowSplitBounds(const FSceneView& View, int32 InCascadeIndex, FShadowCascadeSettings* OutCascadeSettings) const
 {
-	const float SplitNear = View.NearClip;
-	const float SplitFar = 100.0f;
+	const float SplitNear = GetSplitDistance(View, InCascadeIndex);
+	const float SplitFar = GetSplitDistance(View, InCascadeIndex + 1);
 
 	const FQuat Q = View.ViewRotation.Quaternion();
 	const FVector Forward = Q.GetForwardVector();
@@ -83,6 +117,13 @@ FSphere FDirectionalLightSceneProxy::GetShadowSplitBounds(const FSceneView& View
 	}
 
 	return FSphere(Center, Radius);
+}
+
+float FDirectionalLightSceneProxy::GetSplitDistance(const FSceneView& View, uint32 SplitIndex) const
+{
+	const float ShadowNear = View.NearClip;
+	return ShadowNear + ComputeAccumulatedScale(CascadeDistributionExponent,
+		static_cast<int32>(SplitIndex), static_cast<int32>(DynamicShadowCascades)) * (DynamicShadowDistanceMovableLight - ShadowNear);
 }
 
 void FPointLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
@@ -124,7 +165,7 @@ bool FPointLightSceneProxy::GetWholeSceneProjectedShadowInitializer(const FScene
 		OutInitializer.Scales = FVector2(1.0f, 1.0f);
 		OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(Radius), Radius);
 		OutInitializer.WAxis = FVector4(0, 0, 1, 0);
-		OutInitializer.MinLightW = 0.1f;
+		OutInitializer.MinLightW = Radius * 0.02f;
 		OutInitializer.MaxDistanceToCastInLightW = Radius;
 		OutInitializer.bOnePassPointLightShadow = false;
 	}
@@ -171,12 +212,11 @@ bool FSpotLightSceneProxy::GetWholeSceneProjectedShadowInitializer(const FSceneV
 	OutInitializer.Scales = FVector2(InvTan, InvTan);
 	OutInitializer.SubjectBounds = FBoxSphereBounds(FVector::ZeroVector, FVector(Radius), Radius);
 	OutInitializer.WAxis = FVector4(0, 0, 1, 0);
-	OutInitializer.MinLightW = 0.1f;
+	OutInitializer.MinLightW = Radius * 0.02f;
 	OutInitializer.MaxDistanceToCastInLightW = Radius;
 
 	return true;
 }
-
 
 void FRectLightSceneProxy::GetLightShaderParameters(FLightRenderParameters& Out) const
 {

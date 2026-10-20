@@ -71,6 +71,7 @@ public:
 	virtual void OnTransformDirty() override;
 
 	virtual bool MoveComponent(const FVector& Delta, const FRotator& NewRotation, bool bSweep, FHitResult* Hit = nullptr) override;
+	virtual void PostEditChangeProperty(const FProperty& Property) override;
 
 	void SetCastShadow(bool NewCastShadow);
 

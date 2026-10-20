@@ -7,13 +7,13 @@
 #define TILE_DIM 16                             // C++ TiledTileSize와 같아야 한다
 #define THREADS_PER_TILE (TILE_DIM * TILE_DIM)
 
-Texture2D<float> DepthTexture : register(t11);  // R24_UNORM_X8 → 0~1 깊이
+Texture2D<float> DepthTexture : register(t11);  // R24_UNORM_X8 -> 0~1 깊이
 
 groupshared uint sMinZ;         // View 깊이(양수 float)의 비트. 양수 float는 비트 대소 = 값 대소
 groupshared uint sMaxZ;
 groupshared uint sDepthMask;    // [MinZ, MaxZ]를 32칸으로 나눠 픽셀이 있는 칸에 1
 
-// 깊이 버퍼 값(0~1) → View 깊이(X)
+// 깊이 버퍼 값(0~1) -> View 깊이(X)
 float ToViewDepth(float D)
 {
     const float ZScale = Projection[0][2];
@@ -64,7 +64,7 @@ void mainCS(uint3 GroupID : SV_GroupID, uint3 DispatchID : SV_DispatchThreadID, 
     }
     GroupMemoryBarrierWithGroupSync();
 
-    // 4) 라이트 검사: 타일 측면 + [MinZ, MaxZ] AABB (+ Spot 원뿔) → 깊이 마스크
+    // 4) 라이트 검사: 타일 측면 + [MinZ, MaxZ] AABB (+ Spot 원뿔) -> 깊이 마스크
     if (!bEmpty)
     {
         const FCullCell Cell = MakeCullCell(GroupID.xy, MinZ, MaxZ);

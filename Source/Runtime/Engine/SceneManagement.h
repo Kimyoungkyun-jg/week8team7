@@ -37,23 +37,23 @@ public:
 	// SplitNear <= FadePlane <= SplitFar (카메라 기준 거리)
 
 	// 카메라에서 이 캐스케이드 앞쪽 경계까지의 거리
-	float SplitNear;
+	float SplitNear = 0.0f;
 
 	// 카메라에서 이 캐스케이드 뒤쪽 경계까지의 거리
-	float SplitFar;
+	float SplitFar = 0.0f;
 
 	// 인접 캐스케이드와 블렌딩하는 구간
 	// 앞쪽 경계의 fade 폭
-	float SplitNearFadeRegion;
+	float SplitNearFadeRegion = 0.0f;
 
 	// 뒤쪽 경계의 fade 폭
-	float SplitFarFadeRegion;
+	float SplitFarFadeRegion = 0.0f;
 
 	// 다음 캐스케이드와 섞기 시작하는 거리. FadePlane~SplitFar 구간을 섞어 경계를 숨긴다.
-	float FadePlaneOffset;
+	float FadePlaneOffset = 0.0f;
 
 	// 섞는 구간의 길이 (SplitFar - FadePlaneOffset)
-	float FadePlaneLength;
+	float FadePlaneLength = 0.0f;
 
 	// Caster 컬링용 볼록 영역. 필요해지면 FFrustumPlanes 등으로 추가한다.
 	//FConvexVolume ShadowBoundsAccurate;

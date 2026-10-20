@@ -83,6 +83,16 @@ bool UPrimitiveComponent::MoveComponent(const FVector& Delta, const FRotator& Ne
 	return Super::MoveComponent(Delta, NewRotation, bSweep, Hit);
 }
 
+void UPrimitiveComponent::PostEditChangeProperty(const FProperty& Property)
+{
+	if (Property.Name == "CastShadow" ||
+		Property.Name == "bCastDynamicShadow" ||
+		Property.Name == "bReceiveShadow")
+	{
+		MarkRenderStateDirty();
+	}
+}
+
 void UPrimitiveComponent::SetCastShadow(bool NewCastShadow)
 {
 	if (NewCastShadow != CastShadow)

@@ -935,7 +935,7 @@ namespace
             }
             else
             {
-                // 살아남는 면에서 B → A 치환
+                // 살아남는 면에서 B -> A 치환
                 for (uint32& V : Face.V)
                 {
                     if (V == B) V = A;

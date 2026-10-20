@@ -129,7 +129,7 @@ FVector4 FMatrix::TransformFVector4NoScale(const FVector4& V) const
 	FMatrixRegister MReg = FMatrixRegister::Load(*this);
 	MReg = MReg.Transpose();
 
-	FVectorRegister VReg = VectorSIMD::SetVal(V.X, V.Y, V.Z, V.W);			
+	FVectorRegister VReg = VectorSIMD::SetVal(V.X, V.Y, V.Z, V.W);
 
 	return FVector4(
 		VectorSIMD::Dot(VectorSIMD::Normalized(MReg.R[0]), VReg),
@@ -366,6 +366,16 @@ FMatrix FMatrix::MakePerspectiveLH(float FOV, float AspectRatio, float Near, flo
 		0.0f, YScale, 0.0f, 0.0f,
 		0.0f, 0.0f, ZOffset, 0.0f
 	);
+}
+
+FMatrix FMatrix::MakeOrthographLH(float Width, float Height, float Near, float Far)
+{
+	const float ZScale = 1.0f / (Far - Near);
+	return FMatrix(
+		0.0f, 0.0f, ZScale, 0.0f,
+		2.0f / Width, 0.0f, 0.0f, 0.0f,
+		0.0f, 2.0f / Height, 0.0f, 0.0f,
+		0.0f, 0.0f, -Near * ZScale, 1.0f);
 }
 
 /* Global Operator */
