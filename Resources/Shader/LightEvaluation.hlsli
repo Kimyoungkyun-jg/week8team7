@@ -34,21 +34,30 @@ void AccumulateLight(inout FLightResult Result, float3 N, float3 V, float3 L,
         Result.Specular += Radiance * SpecularColor * pow(saturate(dot(N, H)), max(Shininess, 1.0f));
     }
 }
-
-float3 GetCascadeDebugColor(float ViewDepth)
+float3 GetCascadeDebugColor(uint CascadeIndex)
 {
-    if (ViewDepth < 10.0f)
-        return float3(1.0f, 0.0f, 0.0f); // Cascade 0: 빨강
+    if (CascadeIndex == 0u)
+        return float3(1.0f, 0.25f, 0.25f); // Cascade 0: 빨강
 
-    if (ViewDepth < 30.0f)
-        return float3(0.0f, 1.0f, 0.0f); // Cascade 1: 초록
+    if (CascadeIndex == 1u)
+        return float3(0.25f, 1.0f, 0.25f); // Cascade 1: 초록
 
-    if (ViewDepth < 100.0f)
-        return float3(0.0f, 0.0f, 1.0f); // Cascade 2: 파랑
+    if (CascadeIndex == 2u)
+        return float3(0.25f, 0.45f, 1.0f); // Cascade 2: 파랑
 
-    return float3(1.0f, 1.0f, 0.0f); // Cascade 3: 노랑
+    return float3(1.0f, 0.85f, 0.2f); // Cascade 3: 노랑
 }
 
+float3 ApplyCascadeDebugTint(float3 Color, uint CascadeIndex)
+{
+    const float3 White = float3(1.0f, 1.0f, 1.0f);
+    const float3 CascadeColor = GetCascadeDebugColor(CascadeIndex);
+
+    // 원래 조명 색과 Cascade 색상을 혼합해 그림자 명암을 유지한다.
+    const float3 Tint = lerp(White, CascadeColor, 0.65f);
+
+    return Color * Tint;
+}
 float CalculateShadow(float3 P, float4x4 VP, float4 AtlasRect, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, uint AtlasIndex, SamplerState Sampler)
 {
     float Shadow = 1.0;

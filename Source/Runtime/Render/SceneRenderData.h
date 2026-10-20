@@ -230,7 +230,8 @@ struct FSceneRenderData
 				constexpr float CascadeSplitLambda = 0.95f;
 
 				const float NearClip = View.NearClip;
-				const float FarClip = View.FarClip;
+				constexpr float MaxDirectionalShadowDistance = 2000.0f;
+				const float FarClip = std::min(View.FarClip, MaxDirectionalShadowDistance);
 
 				assert(NearClip > 0.0f);
 				assert(FarClip > NearClip);
@@ -261,8 +262,7 @@ struct FSceneRenderData
 			assert(View.FarClip > View.NearClip);
 			assert(View.AspectRatio > 0.0f);
 
-			const float HalfFOV =
-				FMath::DegreesToRadians(View.FieldOfView) * 0.5f;
+			const float HalfFOV = FMath::DegreesToRadians(View.FieldOfView) * 0.5f;
 
 			for (int32 LightIndexOffset = 0; LightIndexOffset < GetDirectionalLightCount(); ++LightIndexOffset)
 			{
@@ -340,19 +340,55 @@ struct FSceneRenderData
 
 					// 광원 카메라를 Cascade 중앙보다 빛의 반대 방향으로 이동한다.
 					// 여유 공간을 두어 절두체 꼭짓점이 Near/Far 범위에서 잘리지 않게 한다.
-					constexpr float DepthPadding = 100.0f;
+					constexpr float DepthPadding = 100;
 
 					const FVector LightViewLocation = CascadeCenter - LightDirection * (CascadeRadius + DepthPadding);
 
 					const FMatrix LightView = LookAt(LightViewLocation, CascadeCenter, UpVector);
 
-					// 정사영 영역은 정사각형으로 잡아 모든 꼭짓점을 포함한다.
-					const float ShadowWidth = CascadeRadius * 2.0f;
+					const FVector FirstLightCorner = LightView.TransformPosition(FrustumCorners[0]);
+
+					float MinY = FirstLightCorner.Y;
+					float MaxY = FirstLightCorner.Y;
+					float MinZ = FirstLightCorner.Z;
+					float MaxZ = FirstLightCorner.Z;
+
+					for (uint32 Index = 1; Index < 8; ++Index)
+					{
+						const FVector Corner = LightView.TransformPosition(FrustumCorners[Index]);
+						MinY = std::min(MinY, Corner.Y);
+						MaxY = std::max(MaxY, Corner.Y);
+						MinZ = std::min(MinZ, Corner.Z);
+						MaxZ = std::max(MaxZ, Corner.Z);
+					}
+
+					const float PaddingY = (MaxY - MinY) * 2.0f / static_cast<float>(DirectionalLightShadowMapSize);
+					const float PaddingZ = (MaxZ - MinZ) * 2.0f / static_cast<float>(DirectionalLightShadowMapSize);
+
+					MinY -= PaddingY;
+					MaxY -= PaddingY;
+					MinZ -= PaddingZ;
+					MaxZ -= PaddingZ;
+
+					const float Width = MaxY - MinY;
+					const float Height = MaxZ - MinZ;
 
 					const float ShadowNear = 0.1f;
 					const float ShadowFar = 2.0f * (CascadeRadius + DepthPadding);
 
-					const FMatrix LightProjection = Ortho(ShadowWidth, 1.0f, ShadowNear, ShadowFar);
+					const float DepthRange = ShadowFar - ShadowNear;
+					assert(Width > 0.0f);
+					assert(Height > 0.0f);
+					assert(DepthRange > 0.0f);
+
+					const FMatrix LightProjection(
+						0.0f, 0.0f, 1.0f / DepthRange, 0.0f,
+						2.0f / Width, 0.0f, 0.0f, 0.0f,
+						0.0f, 2.0f / Height, 0.0f, 0.0f,
+						-(MaxY + MinY) / Width,
+						-(MaxZ + MinZ) / Height,
+						-ShadowNear / DepthRange,
+						1.0f);
 
 					FLightShadowRenderData Shadow{};
 

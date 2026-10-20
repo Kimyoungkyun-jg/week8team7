@@ -3,7 +3,7 @@
 #include "LightData.hlsli"
 #include "LightEvaluation.hlsli"
 #include "LightGridCommon.hlsli"
-#define DEBUG_CASCADE_COLORS 1
+
 // 셰이더 스캐너는 매크로 정의 없이 이 파일을 컴파일하므로 기본 변형에는 Lambert를 쓴다.
 // 명시적인 변형은 조명 모델 또는 뷰 모드 하나만 1로 설정한다.
 #if !defined(LIGHTING_MODEL_GOURAUD) && !defined(LIGHTING_MODEL_LAMBERT) && !defined(LIGHTING_MODEL_PHONG) && !defined(VIEW_MODE_WORLD_NORMAL)
@@ -48,6 +48,25 @@ StructuredBuffer<uint> TileSpotIndices : register(t12);
 StructuredBuffer<FLightShadowRenderData> LightShadows : register(t13);
 Texture2DArray LightShadowAtlas : register(t14);
 
+uint SelectDirectionalCascadeIndex(float ViewDepth, uint DirectionalShadowBase)
+{
+    uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1u;
+
+    [unroll]
+    for (uint CandidateIndex = 0u; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
+    {
+        FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
+
+        if (ViewDepth <= CandidateShadow.CascadeFarDepth)
+        {
+            CascadeIndex = CandidateIndex;
+            break;
+        }
+    }
+
+    return CascadeIndex;
+}
+
 cbuffer MaterialParams : register(b2)
 {
     float4 BaseColor;
@@ -86,7 +105,6 @@ struct VS_OUT
 #elif !VIEW_MODE_WORLD_NORMAL
     float3 WorldPosition : TEXCOORD1;
 #endif
-    float ViewDepth : TEXCOORD3;
 };
 
 struct FUberOutput
@@ -268,24 +286,11 @@ FLightResult CalculateBaseLighting(float3 P, float3 N, float3 V, bool bIncludeSp
     {
         float ViewDepth = mul(float4(P, 1.0f), View).x;
 
-        const uint DirectionalShadowBase = LightShadowOffsets.z + DirectionalIndex * DIRECTIONAL_CASCADE_COUNT;
-        
-        uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1;
-        
-        [unroll]
-        for (uint CandidateIndex = 0; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
-        {
-            FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
+        const uint DirectionalShadowBase =  LightShadowOffsets.z + DirectionalIndex * DIRECTIONAL_CASCADE_COUNT;
 
-            if (ViewDepth <= CandidateShadow.CascadeFarDepth)
-            {
-                CascadeIndex = CandidateIndex;
-                break;
-            }
-        }
+        const uint CascadeIndex = SelectDirectionalCascadeIndex(ViewDepth, DirectionalShadowBase);
 
-        FLightShadowRenderData LightShadow =
-        LightShadows[DirectionalShadowBase + CascadeIndex];
+        FLightShadowRenderData LightShadow = LightShadows[DirectionalShadowBase + CascadeIndex];
 
         float Shadow = CalculateShadow(P, LightShadow.ViewProjection, LightShadow.AtlasRect, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, LightShadow.AtlasIndex, PointSampler);
 
@@ -464,7 +469,6 @@ VS_OUT Uber_VS(VS_IN Input)
     VS_OUT Output;
     float4 WorldPosition = mul(float4(Input.Position, 1.0f), World);
     Output.Position = mul(mul(WorldPosition, View), Projection);
-    Output.ViewDepth = mul(WorldPosition, View).x;
     Output.Color = Input.Color;
     Output.UV = Input.UV * UVTransform.zw + UVTransform.xy;
 
@@ -487,18 +491,6 @@ VS_OUT Uber_VS(VS_IN Input)
 FUberOutput Uber_PS(VS_OUT Input)
 {
     FUberOutput Output;
-    #if DEBUG_CASCADE_COLORS
-    Output.LitColor = float4(
-        GetCascadeDebugColor(Input.ViewDepth),
-        1.0f
-    );
-
-#if !VIEW_MODE_WORLD_NORMAL
-    Output.NormalRoughness = float4(0.0f, 0.0f, 1.0f, 1.0f);
-#endif
-
-    return Output;
-#endif
     float3 ShadingNormal = GetShadingNormal(Input);
 #if VIEW_MODE_WORLD_NORMAL
     Output.LitColor = float4(ShadingNormal * 0.5f + 0.5f, 1.0f);
@@ -530,8 +522,19 @@ FUberOutput Uber_PS(VS_OUT Input)
     Specular = Lit.Specular;
 #endif
 
-    Output.LitColor = float4(Albedo * Diffuse + Specular + Emissive.rgb,
-        SurfaceColor.a * BaseColor.a);
+    Output.LitColor = float4(Albedo * Diffuse + Specular + Emissive.rgb, SurfaceColor.a * BaseColor.a);
+#if DEBUG_CASCADE_COLORS
+    if (LightCounts.z > 0)
+    {
+        const uint CascadeIndex = SelectDirectionalCascadeIndex(
+            Input.ViewDepth,
+            LightShadowOffsets.z);
+
+        Output.LitColor.rgb = ApplyCascadeDebugTint(
+            Output.LitColor.rgb,
+            CascadeIndex);
+    }
+#endif
     Output.NormalRoughness = float4(ShadingNormal, 0.8f);
 #endif
     return Output;

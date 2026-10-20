@@ -2,7 +2,7 @@
 
 #include "LightData.hlsli"
 #include "LightEvaluation.hlsli"
-
+#define DEBUG_CASCADE_COLORS 1
 Texture2D<float4> BaseColorMetallic : register(t0);
 Texture2D<float4> NormalRoughness : register(t1);
 Texture2D<float> SceneDepth : register(t2);
@@ -42,6 +42,25 @@ struct FLightShadowRange
 #define MAX_SHADOW_ATLASES 4
 StructuredBuffer<FLightShadowRenderData> LightShadows : register(t4);
 Texture2DArray LightShadowAtlas : register(t5);
+
+uint SelectDirectionalCascadeIndex(float ViewDepth, uint DirectionalShadowBase)
+{
+    uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1u;
+
+    [unroll]
+    for (uint CandidateIndex = 0u; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
+    {
+        FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
+
+        if (ViewDepth <= CandidateShadow.CascadeFarDepth)
+        {
+            CascadeIndex = CandidateIndex;
+            break;
+        }
+    }
+
+    return CascadeIndex;
+}
 
 cbuffer ShadowConstants : register(b1)
 {
@@ -116,7 +135,17 @@ float4 mainPS(FPSInput Input) : SV_Target
     if (!isfinite(WorldH.w) || abs(WorldH.w) < 1.0e-6f)
         return 0.0f;
     float3 WorldPosition = WorldH.xyz / WorldH.w;
+    
+    float ViewDepth = dot(WorldPosition - CameraPosition.xyz, CameraForward.xyz);
 
+    bool bHasCascadeDebug = LightCounts.z > 0;
+    uint DebugCascadeIndex = 0u;
+
+    if (bHasCascadeDebug)
+    {
+        DebugCascadeIndex = SelectDirectionalCascadeIndex(ViewDepth, LightShadowOffsets.z);
+    }
+    
     float3 AmbientColor = AmbientColorIntensity.rgb * max(AmbientColorIntensity.a, 0.0f);
     float3 BaseLighting = AmbientColor;
     if (SkyColorIntensity.a > 0.0f)
@@ -133,24 +162,9 @@ float4 mainPS(FPSInput Input) : SV_Target
         float3 LightDir = normalize(Light.Direction);
         float3 LightColor = Light.Color * Light.Intensity;
                 
-        // 카메라 전방 방향으로 측정한 현재 픽셀의 깊이.
-        float ViewDepth = dot(WorldPosition - CameraPosition.xyz, CameraForward.xyz);
-
         const uint DirectionalShadowBase = LightShadowOffsets.z + DirectionalIndex * DIRECTIONAL_CASCADE_COUNT;
 
-        uint CascadeIndex = DIRECTIONAL_CASCADE_COUNT - 1;
-
-        [unroll]
-        for (uint CandidateIndex = 0; CandidateIndex < DIRECTIONAL_CASCADE_COUNT; ++CandidateIndex)
-        {
-            FLightShadowRenderData CandidateShadow = LightShadows[DirectionalShadowBase + CandidateIndex];
-
-            if (ViewDepth <= CandidateShadow.CascadeFarDepth)
-            {
-                CascadeIndex = CandidateIndex;
-                break;
-            }
-        }
+        const uint CascadeIndex = SelectDirectionalCascadeIndex(ViewDepth, DirectionalShadowBase);
 
         FLightShadowRenderData LightShadow = LightShadows[DirectionalShadowBase + CascadeIndex];
 
@@ -160,8 +174,20 @@ float4 mainPS(FPSInput Input) : SV_Target
     }
 
     float3 Lighting = Albedo * BaseLighting;
+
     if (LightCounts.x == 0 && LightCounts.y == 0 && LightCounts.w == 0)
+    {
+#if DEBUG_CASCADE_COLORS
+        if (bHasCascadeDebug)
+        {
+            Lighting = ApplyCascadeDebugTint(
+            Lighting,
+            DebugCascadeIndex);
+        }
+#endif
+
         return float4(Lighting, 1.0f);
+    }
 
     // 직교 투영의 시선 광선은 평행하므로 시선 방향이 위치에 따라 달라지지 않는다.
     float3 ToCamera = CameraPosition.w > 0.5f
@@ -311,7 +337,18 @@ float4 mainPS(FPSInput Input) : SV_Target
         AccumulateLocalLight(LocalDiffuse, LocalSpecular, Albedo, Metallic, Roughness, N, V, L, Radiance);
     }
     
-    return float4(Lighting + LocalDiffuse + LocalSpecular, 1.0f);
+    float3 FinalLighting = Lighting + LocalDiffuse + LocalSpecular;
+
+#if DEBUG_CASCADE_COLORS
+    if (bHasCascadeDebug)
+    {
+        FinalLighting = ApplyCascadeDebugTint(
+        FinalLighting,
+        DebugCascadeIndex);
+    }
+#endif
+
+    return float4(FinalLighting, 1.0f);
 }
 
 
