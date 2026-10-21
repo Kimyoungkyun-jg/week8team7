@@ -442,9 +442,9 @@ void FRenderDevice::CreateStates()
 
 		D3D11_SAMPLER_DESC ShadowComparisionDesc = {};
 		PointDesc.Filter = D3D11_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR;
-		PointDesc.AddressU = D3D11_TEXTURE_ADDRESS_MIRROR;
-		PointDesc.AddressV = D3D11_TEXTURE_ADDRESS_MIRROR;
-		PointDesc.AddressW = D3D11_TEXTURE_ADDRESS_MIRROR;
+		PointDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
+		PointDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
+		PointDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
 		PointDesc.MaxAnisotropy = 1;
 		PointDesc.ComparisonFunc = D3D11_COMPARISON_LESS_EQUAL;
 		PointDesc.MinLOD = 0.0f;

@@ -99,7 +99,7 @@ private:
     void ReadViewportSettings(FEditorSettings& Out) const;
 	void ApplySceneDepthRange();
 	void DrawDefaultPawnSettings();
-	void DrawShadowMapSettings();
+	void DrawShadowSettings();
 
 	UWorld* World = nullptr;
 	FViewportsPanel* ViewportsPanel = nullptr;

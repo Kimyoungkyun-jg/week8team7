@@ -114,7 +114,7 @@ void FSettingsPanel::OnRender()
 	CamCom->SetMoveSpeed(Settings.CameraSpeed);
 
 	//////////////////////////////////////////////////////////
-	DrawShadowMapSettings();
+	DrawShadowSettings();
 	//////////////////////////////////////////////////////////
 
 	//////////////////////////////////////////////////////////
@@ -522,11 +522,11 @@ void FSettingsPanel::DrawDefaultPawnSettings()
     ImGui::TextDisabled("Projectile settings apply to the next shot.");
 }
 
-void FSettingsPanel::DrawShadowMapSettings()
+void FSettingsPanel::DrawShadowSettings()
 {
 	ImGui::Dummy(ImVec2(0.0f, SectionGap));
 
-	ImGui::SeparatorText("ShadowMap Settings");
+	ImGui::SeparatorText("Shadow Settings");
 	ImGui::Checkbox("Draw Cascade Bounds", &Settings.bDrawCascadeBounds);
 	if (Settings.bDrawCascadeBounds)
 		ImGui::TextDisabled("Cascade 0-3: red, yellow, green, blue");
@@ -548,10 +548,12 @@ void FSettingsPanel::DrawShadowMapSettings()
 		Settings.SpotShadowMapSizeLevel = FMath::Clamp(Settings.SpotShadowMapSizeLevel, 0, IM_ARRAYSIZE(QualityLevelStr) - 1);
 	}
 
-	const char* PcfModes[] = { "Off", "On (3x3)", "4x4", "5x5" };
+	const char* PcfModes[] = { "Off", "1 (Radius)", "2 (Radius)", "3 (Radius)", "PCSS" };
 	int PcfModeIndex = static_cast<int>(Settings.PcfMode);
 	ImGui::SetNextItemWidth(200.0f);
 	if (ImGui::Combo("PCF", &PcfModeIndex, PcfModes, IM_ARRAYSIZE(PcfModes)))
+	{
 		Settings.PcfMode = static_cast<EPcfMode>(PcfModeIndex);
+	}
 }
 

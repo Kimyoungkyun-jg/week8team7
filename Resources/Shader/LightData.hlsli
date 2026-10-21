@@ -27,7 +27,7 @@ struct FLightRenderParameters
     float BarnDoorCos;      // Rect 전용: 발광면 가장자리의 문(Barn Door)
     float BarnDoorSin;
     float BarnDoorLength;
-    float Padding;
+    float SourceSize;       // Directional: tan(angular radius), Point/Spot: world radius
 };
 
 struct FLightShadowRenderData

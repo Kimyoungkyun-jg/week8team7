@@ -23,7 +23,7 @@ struct FLightRenderParameters
 	float BarnDoorCos;
 	float BarnDoorSin;
 	float BarnDoorLength;
-	float Padding;
+	float SourceSize;
 };
 
 static_assert(sizeof(FLightRenderParameters) == 96, "sizeof(LightData.hlsli FLightRenderParameters) == sizeof(FLightRenderParameters)");
