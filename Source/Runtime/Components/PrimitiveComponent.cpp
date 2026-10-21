@@ -97,6 +97,7 @@ void UPrimitiveComponent::SetCastShadow(bool NewValue)
 	if (bCastShadow != NewValue)
 	{
 		bCastShadow = NewValue;
+		MarkRenderStateDirty();
 	}
 }
 

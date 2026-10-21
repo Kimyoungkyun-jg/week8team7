@@ -48,6 +48,7 @@ public:
 
 	void MarkDirty(FPrimitiveSceneProxy* Proxy);
 	void MarkRenderStateDirty(FPrimitiveSceneProxy* Proxy);
+	uint64 GetShadowCasterRevision() const { return ShadowCasterRevision; }
 
 	TArray<FPrimitiveSceneProxy*> PrimitiveSceneProxies;
 	TArray<FPrimitiveSceneProxy*> DirtyProxies;
@@ -70,5 +71,6 @@ public:
 	TArray<USkyLightComponent*>           SkyLights;               // 프록시 없음
 
 private:
+	uint64 ShadowCasterRevision = 1;
 	std::unordered_map<FString, TUniquePtr<FSkyLightEnvironment>> SkyLightEnvironments;
 };

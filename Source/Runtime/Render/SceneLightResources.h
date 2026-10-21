@@ -29,7 +29,7 @@ class FSceneLightResources
 {
 public:
 	bool Init();
-	void CreateShadowAtlasIfNeed(uint32 ShadowAtlasMapWidth, uint32 ShadowAtlasMapHeight, uint32 NeedAtlasCount);
+	bool CreateShadowAtlasIfNeed(uint32 ShadowAtlasMapWidth, uint32 ShadowAtlasMapHeight, uint32 NeedAtlasCount, bool& bOutRecreated);
 
 	// 광원을 종류별 구간(방향광, 포인트, 스포트, 렉트 순)으로 정렬해 업로드한다.
 	// Counts/Offsets 순서는 x: 포인트, y: 스포트, z: 방향광, w: 렉트다.

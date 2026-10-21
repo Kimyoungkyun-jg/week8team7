@@ -87,6 +87,7 @@ public:
 	static void BindRenderPassNoClear(FTexture2D* ColorTarget, FTexture2D* DepthTarget, uint32 Width, uint32 Height);
 	static void EndRenderPass();
 	static void ClearDepthStencil(FTexture2D* DepthStencilTexture, float Depth = 1.0f, uint8 Stencil = 0);
+	static bool ClearDepthStencilRect(FTexture2DArray* DepthStencilTexture, uint32 Slice, uint32 X, uint32 Y, uint32 Width, uint32 Height, float Depth = 1.0f);
 	static void SetRenderTargets(FTexture2D* ColorTarget, FTexture2D* DepthTarget);
 	static void SetRenderTargets(ID3D11RenderTargetView** RTVs, uint32 RTVCount, ID3D11DepthStencilView* Depth);
 	static void SetRenderTargets(uint32 ColorTargetCount, FTexture2D* const* ColorTargets, FTexture2D* DepthTarget);

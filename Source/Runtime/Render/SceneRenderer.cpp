@@ -94,6 +94,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FSceneRenderOptions& O
 		FLightRenderParameters Parameters{};
 		Light->GetLightShaderParameters(Parameters);
 		const int32 Index = RenderData.VisibleLights.Add(Parameters);
+		RenderData.VisibleLightOwners.Add(Light->GetLightComponent());
 		if (Light->GetLightComponent() == RenderData.PreviewLight) RenderData.PreviewLightIndex = Index;
 	}
 
@@ -103,6 +104,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FSceneRenderOptions& O
 		FLightRenderParameters Parameters{};
 		Light->GetLightShaderParameters(Parameters);
 		const int32 Index = RenderData.VisibleLights.Add(Parameters);
+		RenderData.VisibleLightOwners.Add(Light->GetLightComponent());
 		if (Light->GetLightComponent() == RenderData.PreviewLight) RenderData.PreviewLightIndex = Index;
 	}
 
@@ -110,6 +112,7 @@ void FSceneRenderer::InitViews(FRenderer* Renderer, const FSceneRenderOptions& O
 	RenderData.PointLightShadowMapSize = Options.PointShadowMapSize;
 	RenderData.SpotLightShadowMapSize = Options.SpotShadowMapSize;
 
+	RenderData.CurrentCasterRevision = Scene.GetShadowCasterRevision();
 	RenderData.Commit(View.FrustumCorners, View.NearClip, View.FarClip, 4, bLightUploadSucceeded);
 }
 
@@ -302,32 +305,47 @@ bool FSceneRenderer::AddCorePasses(FRenderGraphBuilder& Graph, FRenderer* Render
 	{
 		FRenderGraphRasterPassDesc Shadows{};
 		Shadows.Name = "Shadows";
-		Shadows.DepthAttachment = { ShadowMapRef, ERenderGraphLoadAction::Clear, 1.0f, 0 };
+		Shadows.DepthAttachment = { ShadowMapRef, ERenderGraphLoadAction::Load, 1.0f, 0 };
 
 		auto ShadowMapPassHandler = [this, Renderer, &Graph, ShadowMapRef]() {
-			if (!bCorePassSucceeded)
-			{
-				return;
-			}
+			if (!bCorePassSucceeded) return;
 
 			FTexture2DArray* DepthArray = static_cast<FTexture2DArray*>(Graph.Resolve(ShadowMapRef));
+			const bool bAnyDirty = std::find(RenderData.ShadowNeedsRender.begin(),
+				RenderData.ShadowNeedsRender.end(), uint8(1)) != RenderData.ShadowNeedsRender.end();
+			if (!bAnyDirty) return;
 
 			FMeshPassProcessor Processor;
-
 			TArray<FMeshDrawBatch> Batched;
 			Processor.Build(RenderData.ShadowCasterProxies, EPSOType::StaticMesh_LightShadow, Batched);
 
-			// 실제 메시 패스와 같은 VS를 사용해 깊이 계산을 일치시킨다.
-			for (int32 i = 0; i < RenderData.LightShadows.Num(); i++)
+			// Retain clean tiles. For dirty tiles, clear only their rectangle, then rerender that Shadow View.
+			for (int32 i = 0; i < RenderData.LightShadows.Num(); ++i)
 			{
+				if (i >= RenderData.ShadowNeedsRender.Num() || !RenderData.ShadowNeedsRender[i]) continue;
 				const FLightShadowRenderData& LightShadow = RenderData.LightShadows[i];
 
-				RenderCommand::SetViewport(LightShadow.AtlasRect.X, LightShadow.AtlasRect.Y, LightShadow.AtlasRect.Width, LightShadow.AtlasRect.Height);
 				RenderCommand::SetRenderTargets(nullptr, 0, DepthArray->GetDSV(LightShadow.AtlasIndex));
+				if (!RenderCommand::ClearDepthStencilRect(DepthArray, LightShadow.AtlasIndex,
+					static_cast<uint32>(LightShadow.AtlasRect.X), static_cast<uint32>(LightShadow.AtlasRect.Y),
+					static_cast<uint32>(LightShadow.AtlasRect.Width), static_cast<uint32>(LightShadow.AtlasRect.Height), 1.0f))
+				{
+					HTR_LOG(Error, "Partial Shadow Atlas depth clear is unsupported or failed");
+					bCorePassSucceeded = false;
+					assert(false && "Partial Shadow Atlas clear unavailable; refusing stale shadow data");
+					return;
+				}
+				RenderCommand::SetViewport(static_cast<uint32>(LightShadow.AtlasRect.X),
+					static_cast<uint32>(LightShadow.AtlasRect.Y), static_cast<uint32>(LightShadow.AtlasRect.Width),
+					static_cast<uint32>(LightShadow.AtlasRect.Height));
 				Renderer->UploadViewMatrix(LightShadow.ViewProjection);
 				Renderer->DrawMeshes(Batched);
+
+				RenderData.MarkShadowRendered(i);
+
+				++RenderData.RenderStats.ShadowViewsRedrawn;
 			}
-		};
+			};
 
 		if (!Graph.AddRasterPass(std::move(Shadows), ShadowMapPassHandler))
 		{

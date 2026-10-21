@@ -318,6 +318,23 @@ void RenderCommand::ClearDepthStencil(FTexture2D* DepthStencilTexture, float Dep
 	RenderDevice->GetContext()->ClearDepthStencilView(DepthStencilTexture->GetDSV(), D3D11_CLEAR_DEPTH | D3D11_CLEAR_STENCIL, Depth, Stencil);
 }
 
+bool RenderCommand::ClearDepthStencilRect(FTexture2DArray* DepthStencilTexture, uint32 Slice,
+	uint32 X, uint32 Y, uint32 Width, uint32 Height, float Depth)
+{
+	if (!DepthStencilTexture || !Width || !Height || Slice >= DepthStencilTexture->GetArraySize()) return false;
+	if (X > DepthStencilTexture->GetWidth() || Width > DepthStencilTexture->GetWidth() - X || Y > DepthStencilTexture->GetHeight() || Height > DepthStencilTexture->GetHeight() - Y) return false;
+
+	ID3D11DeviceContext1* Context1 = RenderDevice->GetContext1ForDepthClear();
+	if (!Context1 || !RenderDevice->SupportsDepthOnlyClearView()) return false;
+	ID3D11DepthStencilView* DSV = DepthStencilTexture->GetDSV(Slice);
+	if (!DSV) return false;
+
+	const D3D11_RECT Rect{ static_cast<LONG>(X), static_cast<LONG>(Y), static_cast<LONG>(X + Width), static_cast<LONG>(Y + Height) };
+	const float ClearValue[4] = { Depth, 0.0f, 0.0f, 0.0f };
+	Context1->ClearView(DSV, ClearValue, &Rect, 1);
+	return true;
+}
+
 void RenderCommand::SetRenderTargets(FTexture2D* ColorTarget, FTexture2D* DepthTarget)
 {
 	SetRenderTargets(ColorTarget ? 1u : 0u, ColorTarget ? &ColorTarget : nullptr, DepthTarget);

@@ -28,6 +28,7 @@ void FScene::RemovePrimitive(UPrimitiveComponent* Component)
 	FPrimitiveSceneProxy* Proxy = Component->SceneProxy;
 	if (!Proxy) return;
 
+	++ShadowCasterRevision;
 	const uint32 Index = static_cast<uint32>(Proxy->PackedIndex);
 
 	PrimitiveSceneProxies.RemoveAtSwap(Index);
@@ -57,6 +58,7 @@ void FScene::RemovePrimitive(UPrimitiveComponent* Component)
 
 void FScene::RemoveAllPrimitives()
 {
+	if (!PrimitiveSceneProxies.IsEmpty()) ++ShadowCasterRevision;
 	// 하나씩 RemovePrimitive하면 대기열 검색(Find)이 물체 수만큼 반복되므로 통째로 비운다.
 	for (FPrimitiveSceneProxy* Proxy : PrimitiveSceneProxies)
 	{
@@ -247,6 +249,7 @@ void FScene::MarkDirty(FPrimitiveSceneProxy* Proxy)
 	if (Proxy->bQueuedForUpdate) return;            // 중복 추가 방지
 	Proxy->bQueuedForUpdate = true;
 	DirtyProxies.Add(Proxy);
+	++ShadowCasterRevision;
 }
 
 void FScene::MarkRenderStateDirty(FPrimitiveSceneProxy* Proxy)
@@ -254,4 +257,5 @@ void FScene::MarkRenderStateDirty(FPrimitiveSceneProxy* Proxy)
 	if (!Proxy || Proxy->bRenderStateQueued) return;
 	Proxy->bRenderStateQueued = true;
 	RenderStateDirtyProxies.Add(Proxy);
+	++ShadowCasterRevision;
 }

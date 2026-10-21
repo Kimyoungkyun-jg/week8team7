@@ -26,10 +26,49 @@ struct FRenderStats
 	uint32 PointCount = 0;
 	uint32 SpotCount = 0;
 	uint32 RectCount = 0;
+
 	float AtlasCapacity = 0.0f;
 	float ShadowTiles = 0.0f;
 
+	// 이번 프레임에 캐시를 재사용해 렌더링을 생략한 Shadow View 수
+	uint32 ShadowViewsReused = 0;
+
+	// 이번 프레임에 실제로 다시 렌더링한 Shadow View 수
+	uint32 ShadowViewsRedrawn = 0;
+
 	void Reset() { *this = FRenderStats(); }
+};
+
+struct FShadowMapCacheKey
+{
+	const ULightComponent* Light = nullptr;
+
+	uint32 LightType = 0;
+	uint32 ViewIndex = 0;
+
+	bool Matches(const FShadowMapCacheKey& Other) const
+	{
+		return Light == Other.Light && LightType == Other.LightType && ViewIndex == Other.ViewIndex;
+	}
+};
+
+struct FShadowMapCacheEntry
+{
+	FShadowMapCacheKey Key;
+
+	uint32 RequestedSize = 0;
+	uint32 AtlasIndex = UINT32_MAX;
+	FRect AtlasRect{};
+
+	FMatrix CachedViewProjection{};
+	float CachedNear = 0.0f;
+	float CachedFar = 0.0f;
+
+	uint64 CachedCasterRevision = 0;
+	uint64 CachedCasterSignature = 0;
+
+	bool bHasValidDepth = false;
+	bool bSeenThisFrame = false;
 };
 
 // 뷰 하나의 데이터를 프레임 사이에도 보관한다. SceneRenderer는 현재 프레임 동안 이를 빌려 쓴다.
@@ -71,6 +110,14 @@ struct FSceneRenderData
 	bool bHasSkyLight = false;
 
 	TArray<FLightRenderParameters> VisibleLights; // 모든 종류의 광원. 업로드할 때 종류별 구간으로 정렬한다
+	TArray<const ULightComponent*> VisibleLightOwners;
+	TArray<FShadowMapCacheKey> CurrentShadowKeys;
+	TArray<uint8> ShadowNeedsRender;
+	TArray<FShadowMapCacheEntry> ShadowMapCache;
+	TArray<FQuadTree> AtlasTrees;
+	uint64 CurrentCasterRevision = 0;
+	TArray<uint64> CurrentShadowCasterSignatures;
+
 	uint32 LightParameterOffsets[4]; // 라이트 리스트 내 구간의 offset
 	uint32 LightParameterCounts[4]; // 라이트 리스트 내 구간의 count
 
@@ -87,6 +134,189 @@ struct FSceneRenderData
 	const ULightComponent* PreviewLight = nullptr;
 	int32 PreviewLightIndex = INDEX_NONE;
 	FLightShadowRange PreviewShadowRange{};
+
+	int32 FindShadowCacheIndex(const FShadowMapCacheKey& Key) const
+	{
+		for (int32 i = 0; i < ShadowMapCache.Num(); ++i)
+		{
+			if (ShadowMapCache[i].Key.Matches(Key)) return i;
+		}
+		return INDEX_NONE;
+	}
+
+	void ReleaseShadowAllocation(FShadowMapCacheEntry& Cache)
+	{
+		if (Cache.AtlasIndex != UINT32_MAX)
+		{
+			assert(Cache.AtlasIndex < static_cast<uint32>(AtlasTrees.Num()));
+			const bool bReleased = Cache.AtlasIndex < static_cast<uint32>(AtlasTrees.Num()) && AtlasTrees[Cache.AtlasIndex].ReleaseSquare(Cache.AtlasRect);
+			assert(bReleased && "Shadow cache points to an unallocated Atlas rectangle");
+		}
+		Cache.AtlasIndex = UINT32_MAX;
+		Cache.AtlasRect = {};
+		Cache.bHasValidDepth = false;
+	}
+
+	int32 FindOrCreateShadowCache(const FShadowMapCacheKey& Key, uint32 RequestedSize)
+	{
+		int32 Index = FindShadowCacheIndex(Key);
+		if (Index == INDEX_NONE)
+		{
+			Index = ShadowMapCache.Num();
+			FShadowMapCacheEntry& NewEntry = ShadowMapCache.AddDefaulted_GetRef();
+			NewEntry.Key = Key;
+			NewEntry.RequestedSize = RequestedSize;
+			NewEntry.bSeenThisFrame = true;
+			return Index;
+		}
+
+		FShadowMapCacheEntry& Entry = ShadowMapCache[Index];
+		Entry.bSeenThisFrame = true;
+		if (Entry.RequestedSize != RequestedSize)
+		{
+			ReleaseShadowAllocation(Entry);
+			Entry.RequestedSize = RequestedSize;
+		}
+		return Index;
+	}
+
+	void BeginShadowCacheFrame() 
+	{
+		for (FShadowMapCacheEntry& Entry : ShadowMapCache) Entry.bSeenThisFrame = false;
+	}
+
+	void PruneShadowCache()
+	{
+		for (int32 i = ShadowMapCache.Num() - 1; i >= 0;--i)
+		{
+			if (!ShadowMapCache[i].bSeenThisFrame)
+			{
+				ReleaseShadowAllocation(ShadowMapCache[i]);
+				ShadowMapCache.RemoveAtSwap(i);
+			}
+		}
+	}
+
+	static bool IsSameViewProjection(const FMatrix& A, const FMatrix& B)
+	{
+		for (int32 Row = 0; Row < 4; ++Row)
+		{
+			for (int32 Column = 0; Column < 4; ++Column)
+			{
+				if (A.M[Row][Column] != B.M[Row][Column]) return false;
+			}
+		}
+		return true;
+	}
+
+	uint64 BuildLocalLightCasterSignature(const FVector& LightPosition, float LightRadius) const
+	{
+		TArray<const FPrimitiveSceneProxy*> RelevantCasters;
+		const float RadiusSquared = LightRadius * LightRadius;
+		for (const FPrimitiveSceneProxy* Proxy : ShadowCasterProxies)
+		{
+			if (!Proxy || !Proxy->bCastsShadow || !Proxy->GetMesh() || !Proxy->GetRenderState())
+			{
+				continue;
+			}
+			const FAABB& Bounds = Proxy->GetBounds();
+			const float ClosestX = std::clamp(LightPosition.X, Bounds.Center.X - Bounds.Extent.X, Bounds.Center.X + Bounds.Extent.X);
+			const float ClosestY = std::clamp(LightPosition.Y, Bounds.Center.Y - Bounds.Extent.Y, Bounds.Center.Y + Bounds.Extent.Y);
+			const float ClosestZ = std::clamp(LightPosition.Z, Bounds.Center.Z - Bounds.Extent.Z, Bounds.Center.Z + Bounds.Extent.Z);
+			const float DX = LightPosition.X - ClosestX;
+			const float DY = LightPosition.Y - ClosestY;
+			const float DZ = LightPosition.Z - ClosestZ;
+			const float DistanceSquared = DX * DX + DY * DY + DZ * DZ;
+			if (DistanceSquared > RadiusSquared)
+			{
+				continue;
+			}
+			RelevantCasters.Add(Proxy);
+		}
+
+		if (RelevantCasters.Num() > 1)
+		{
+			std::sort(RelevantCasters.GetData(), RelevantCasters.GetData() + RelevantCasters.Num(), std::less<const FPrimitiveSceneProxy*>{});
+		}
+		uint64 Hash = 14695981039346656037ull;
+
+		for (const FPrimitiveSceneProxy* Proxy : RelevantCasters)
+		{
+			Hash ^= static_cast<uint64>(std::hash<const FPrimitiveSceneProxy*>{}(Proxy));
+			Hash *= 1099511628211ull;
+
+			Hash ^= Proxy->GetShadowCasterRevision();
+			Hash *= 1099511628211ull;
+		}
+
+		return Hash;
+	}
+
+	void PrepareShadowRenderFlags(bool bAtlasRecreated)
+	{
+		RenderStats.ShadowViewsReused = 0;
+		RenderStats.ShadowViewsRedrawn = 0;
+		if (bAtlasRecreated)
+		{
+			for (FShadowMapCacheEntry& Entry : ShadowMapCache) Entry.bHasValidDepth = false;
+		}
+
+		ShadowNeedsRender.SetNum(LightShadows.Num());
+		assert(CurrentShadowKeys.Num() == LightShadows.Num());
+		for (int32 i = 0; i < LightShadows.Num(); ++i)
+		{
+			const int32 CacheIndex = FindShadowCacheIndex(CurrentShadowKeys[i]);
+			if (CacheIndex == INDEX_NONE)
+			{
+				ShadowNeedsRender[i] = 1;
+				assert(false && "Missing Shadow Atlas cache entry");
+				continue;
+			}
+			const FShadowMapCacheEntry& Cache = ShadowMapCache[CacheIndex];
+			const FLightShadowRenderData& Shadow = LightShadows[i];
+			assert(CurrentShadowCasterSignatures.Num() == LightShadows.Num());
+
+			const bool bRangeLimitedLight = Cache.Key.LightType == static_cast<uint32>(ELightType::Point) || Cache.Key.LightType == static_cast<uint32>(ELightType::Spot);
+
+			const bool bCasterChanged = bRangeLimitedLight ? Cache.CachedCasterSignature != CurrentShadowCasterSignatures[i] : Cache.CachedCasterRevision != CurrentCasterRevision;
+
+			const bool bDirty = !Cache.bHasValidDepth || !IsSameViewProjection( Cache.CachedViewProjection, Shadow.ViewProjection) || Cache.CachedNear != Shadow.Near || Cache.CachedFar != Shadow.Far || bCasterChanged;
+
+			ShadowNeedsRender[i] = bDirty ? 1u : 0u;
+
+			if (!bDirty)
+			{
+				++RenderStats.ShadowViewsReused;
+			}
+		}
+	}
+
+	void MarkShadowRendered(int32 ShadowIndex)
+	{
+		if (ShadowIndex < 0 || ShadowIndex >= LightShadows.Num() || ShadowIndex >= CurrentShadowKeys.Num())
+		{
+			assert(false && "Invalid rendered Shadow View index");
+			return;
+		}
+
+		const int32 CacheIndex = FindShadowCacheIndex(CurrentShadowKeys[ShadowIndex]);
+		if (CacheIndex == INDEX_NONE)
+		{
+			assert(false && "Rendered Shadow View has no cache entry");
+			return;
+		}
+
+		FShadowMapCacheEntry& Cache = ShadowMapCache[CacheIndex];
+		const FLightShadowRenderData& Shadow = LightShadows[ShadowIndex];
+		Cache.CachedViewProjection = Shadow.ViewProjection;
+		Cache.CachedNear = Shadow.Near;
+		Cache.CachedFar = Shadow.Far;
+		Cache.CachedCasterRevision = CurrentCasterRevision;
+		assert(ShadowIndex >= 0 && ShadowIndex < CurrentShadowCasterSignatures.Num());
+
+		Cache.CachedCasterSignature = CurrentShadowCasterSignatures[ShadowIndex];
+		Cache.bHasValidDepth = true;
+	}
 
 	bool GetShadowPreview(const ULightComponent* Light, FTexture2DArray*& OutAtlas,  // Shadow range를 바탕으로 lightshadow 인덱스에서 선택한 조명이 몇번째 index에서 viewcount가 몇개인지 알 수 있음
 		TArray<FLightShadowRenderData>& OutShadows) const
@@ -117,6 +347,8 @@ struct FSceneRenderData
 	void ResetScene()
 	{
 		ResetFrame();
+		ShadowMapCache.Reset();
+		AtlasTrees.Reset();
 		for (FGatherChunk& Chunk : GatherChunks)
 		{
 			Chunk.Groups.clear();
@@ -137,6 +369,10 @@ struct FSceneRenderData
 		SkyLight = {};
 		bHasSkyLight = false;
 		VisibleLights.Reset();
+		VisibleLightOwners.Reset();
+		CurrentShadowKeys.Reset();
+		ShadowNeedsRender.Reset();
+		CurrentShadowCasterSignatures.Reset();
 		LightShadows.Reset();
 		PreviewLightIndex = INDEX_NONE;
 		PreviewShadowRange = {};
@@ -159,7 +395,7 @@ struct FSceneRenderData
 	void Commit(const FFrustumCorners& CameraFrustumCorners, float CameraNear, float CameraFar, uint32 ExpectCascadeCount, bool& bLightUpaloadSucceeded)
 	{
 		RenderQueue.Sort();
-
+		BeginShadowCacheFrame();
 		uint32 AtlasNeedCount = 1;
 		if (VisibleLights.Num())
 		{
@@ -181,13 +417,16 @@ struct FSceneRenderData
 				return ASlot < BSlot;
 			});
 			TArray<FLightRenderParameters> SortedLights;
+			TArray<const ULightComponent*> SortedLightOwners;
 			int32 SortedPreviewIndex = INDEX_NONE;
 			for (int32 Index : LightOrder)
 			{
 				if (Index == PreviewLightIndex) SortedPreviewIndex = SortedLights.Num();
 				SortedLights.Add(VisibleLights[Index]);
+				SortedLightOwners.Add(VisibleLightOwners[Index]);
 			}
 			VisibleLights = std::move(SortedLights);
+			VisibleLightOwners = std::move(SortedLightOwners);
 			PreviewLightIndex = SortedPreviewIndex;
 
 			// Light 배열 정리 및 구간 별 Offset, Count 기록
@@ -223,6 +462,7 @@ struct FSceneRenderData
 			{
 				uint32 Size;
 				uint32 Index;
+				FShadowMapCacheKey Key;
 			};
 
 			TArray<FAreaInfo> AreaInfos;
@@ -236,7 +476,7 @@ struct FSceneRenderData
 				if (LightIndex == PreviewLightIndex) PreviewShadowRange = { uint32(LightShadows.Num()), 6 };
 
 				const FLightRenderParameters& PointLight = VisibleLights[LightIndex];
-
+				const uint64 PointCasterSignature = BuildLocalLightCasterSignature(PointLight.Position, PointLight.Radius);
 				FMatrix PerspectiveMatrix = Perspective(FMath::DegreesToRadians(90.f), 1.0, 0.1f, PointLight.Radius);
 				FMatrix Views[] = {
 					LookAt(PointLight.Position, PointLight.Position + ForwardVector, UpVector),
@@ -253,10 +493,19 @@ struct FSceneRenderData
 					Shadow.ViewProjection = Views[j] * PerspectiveMatrix;
 					Shadow.Near = 0.1f;
 					Shadow.Far = PointLight.Radius;
-					
+
+					const FShadowMapCacheKey Key
+					{
+						VisibleLightOwners[LightIndex],
+						PointLight.Type,
+						static_cast<uint32>(j)
+					};
+
 					uint32 Index = LightShadows.Add(Shadow);
 
-					AreaInfos.Add({ PointLightShadowMapSize, Index });
+					CurrentShadowKeys.Add(Key);
+					CurrentShadowCasterSignatures.Add(PointCasterSignature);
+					AreaInfos.Add({ PointLightShadowMapSize, Index, Key });
 
 					ShadowOffset++;
 				}
@@ -269,7 +518,7 @@ struct FSceneRenderData
 				if (LightIndex == PreviewLightIndex) PreviewShadowRange = { uint32(LightShadows.Num()), 1 };
 
 				const FLightRenderParameters& SpotLight = VisibleLights[LightIndex];
-
+				const uint64 SpotCasterSignature = BuildLocalLightCasterSignature(SpotLight.Position, SpotLight.Radius);
 				FMatrix ViewMatrix = LookAt(SpotLight.Position, SpotLight.Position + SpotLight.Direction, UpVector);
 				FMatrix ProjectionMatrix = Perspective(std::acos(SpotLight.OuterConeCos) * 2.0f, 1.0, 0.1f, SpotLight.Radius);
 
@@ -277,10 +526,16 @@ struct FSceneRenderData
 				Shadow.ViewProjection = ViewMatrix * ProjectionMatrix;
 				Shadow.Near = 0.1f;
 				Shadow.Far = SpotLight.Radius;
-				
+				const FShadowMapCacheKey Key
+				{
+					VisibleLightOwners[LightIndex],
+					SpotLight.Type,
+					0u
+				};
 				uint32 Index = LightShadows.Add(Shadow);
-
-				AreaInfos.Add({ SpotLightShadowMapSize, Index });
+				CurrentShadowKeys.Add(Key);
+				CurrentShadowCasterSignatures.Add(SpotCasterSignature);
+				AreaInfos.Add({ SpotLightShadowMapSize, Index , Key});
 
 				ShadowOffset++;
 			}
@@ -384,10 +639,16 @@ struct FSceneRenderData
 					Shadow.ViewProjection = ViewMatrix * CascadeProjectionMatrix;
 					Shadow.Near = NearX;
 					Shadow.Far = MaxLightX;
-
+					const FShadowMapCacheKey Key
+					{
+						VisibleLightOwners[LightIndex],
+						DirectionalLight.Type,
+						static_cast<uint32>(j)
+					};
 					uint32 Index = LightShadows.Add(Shadow);
-
-					AreaInfos.Add({ CascadeShadowMapSize, Index});
+					CurrentShadowKeys.Add(Key);
+					CurrentShadowCasterSignatures.Add(0);
+					AreaInfos.Add({ DirectionalLightShadowMapSize, Index , Key });
 
 					ShadowOffset++;
 
@@ -401,56 +662,91 @@ struct FSceneRenderData
 				}
 			}
 
-			std::sort(AreaInfos.GetData(), AreaInfos.GetData() + AreaInfos.Num(), [](const FAreaInfo& A, const FAreaInfo& B) { return A.Size > B.Size; });
-
-			TArray<FQuadTree> AtlasTrees;
-			FQuadTree Root(ShadowMapSize);
-			AtlasTrees.Add(Root);
-
-			for (int32 i = 0; i < AreaInfos.Num(); ++i)
+			for (const FAreaInfo& AreaInfo : AreaInfos)
 			{
-				const FAreaInfo& AreaInfo = AreaInfos[i];
-				
-				uint32 PlacedAtlasIndex = 0;
-				FRect PlacedRect{};
-				bool bPlaced = false;
+				FindOrCreateShadowCache(AreaInfo.Key, AreaInfo.Size);
+			}
+			PruneShadowCache();
 
-				for (size_t AtlasIndex = 0; AtlasIndex < AtlasTrees.Num(); ++AtlasIndex)
+			if (AtlasTrees.IsEmpty())
+			{
+				AtlasTrees.Add(FQuadTree(ShadowMapSize));
+			}
+			for (uint32 Size = ShadowMapSize; Size > 0; Size >>= 1)
+			{
+				for (const FAreaInfo& AreaInfo : AreaInfos)
 				{
-					if (AtlasTrees[AtlasIndex].InsertSquare(AreaInfo.Size, PlacedRect))
+					if (AreaInfo.Size != Size) continue;
+
+					const int32 CacheIndex = FindShadowCacheIndex(AreaInfo.Key);
+					assert(CacheIndex != INDEX_NONE);
+					if (CacheIndex == INDEX_NONE) continue;
+
+					FShadowMapCacheEntry& Cache = ShadowMapCache[CacheIndex];
+					if (Cache.AtlasIndex != UINT32_MAX) continue;
+
+					FRect PlacedRect{};
+					bool bPlaced = false;
+					uint32 PlacedAtlasIndex = 0;
+					for (int32 Page = 0; Page < AtlasTrees.Num(); ++Page)
 					{
-						PlacedAtlasIndex = static_cast<uint32>(AtlasIndex);
-						bPlaced = true;
-						break;
+						if (AtlasTrees[Page].InsertSquare(static_cast<uint16>(AreaInfo.Size), PlacedRect))
+						{
+							PlacedAtlasIndex = static_cast<uint32>(Page);
+							bPlaced = true;
+							break;
+						}
 					}
-				}
 
-				if (!bPlaced)
-				{
-					AtlasTrees.Add(FQuadTree(ShadowMapSize));
-					PlacedAtlasIndex = static_cast<uint32>(AtlasTrees.Num() - 1);
-					bPlaced = AtlasTrees.Last().InsertSquare(AreaInfo.Size, PlacedRect);
+					if (!bPlaced)
+					{
+						AtlasTrees.Add(FQuadTree(ShadowMapSize));
+						PlacedAtlasIndex = static_cast<uint32>(AtlasTrees.Num() - 1);
+						bPlaced = AtlasTrees.Last().InsertSquare(static_cast<uint16>(AreaInfo.Size), PlacedRect);
+					}
 					if (!bPlaced)
 					{
 						bLightUpaloadSucceeded = false;
+						assert(false && "Could not allocate a Shadow Atlas rectangle");
 						return;
 					}
+					Cache.AtlasIndex = PlacedAtlasIndex;
+					Cache.AtlasRect = PlacedRect;
+					Cache.bHasValidDepth = false;
 				}
-
-				FLightShadowRenderData& Shadow = LightShadows[AreaInfo.Index];
-				Shadow.AtlasIndex = PlacedAtlasIndex;
-				Shadow.AtlasRect = PlacedRect;
+				if (Size == 1) break;
 			}
-			AtlasNeedCount = static_cast<uint32>(AtlasTrees.Num());
-		}
 
+			for (const FAreaInfo& AreaInfo : AreaInfos)
+			{
+				const int32 CacheIndex = FindShadowCacheIndex(AreaInfo.Key);
+				assert(CacheIndex != INDEX_NONE);
+				if (CacheIndex == INDEX_NONE) continue;
+				const FShadowMapCacheEntry& Cache = ShadowMapCache[CacheIndex];
+				FLightShadowRenderData& Shadow = LightShadows[AreaInfo.Index];
+				Shadow.AtlasIndex = Cache.AtlasIndex;
+				Shadow.AtlasRect = Cache.AtlasRect;
+			}
+			AtlasNeedCount = std::max(1u, static_cast<uint32>(AtlasTrees.Num()));
+		}
+		else
+		{
+			PruneShadowCache();
+			AtlasNeedCount = std::max(1u, static_cast<uint32>(AtlasTrees.Num()));
+		}
 		// NOTE: 라이트 데이터를 GPU에 올림.
 		bLightUpaloadSucceeded = ViewLightResources.Init();
 		if (bLightUpaloadSucceeded)
 		{
 			bLightUpaloadSucceeded &= ViewLightResources.UploadViewLights(VisibleLights);
-			ViewLightResources.CreateShadowAtlasIfNeed(ShadowMapSize, ShadowMapSize, AtlasNeedCount);
-			bLightUpaloadSucceeded &= ViewLightResources.UploadLightShadows(LightShadows);
+			bool bAtlasRecreated = false;
+			const bool bAtlasReady = ViewLightResources.CreateShadowAtlasIfNeed(ShadowMapSize, ShadowMapSize, AtlasNeedCount, bAtlasRecreated);
+			bLightUpaloadSucceeded &= bAtlasReady;
+			if (bAtlasReady)
+			{
+				PrepareShadowRenderFlags(bAtlasRecreated);
+				bLightUpaloadSucceeded &= ViewLightResources.UploadLightShadows(LightShadows);
+			}
 		}
 		RenderStats.DirectionalCount = GetDirectionalLightCount();
 		RenderStats.PointCount = GetPointLightCount();

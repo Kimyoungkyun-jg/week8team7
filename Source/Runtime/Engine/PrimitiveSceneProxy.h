@@ -37,6 +37,8 @@ public:
 	void SetCastShadow(bool NewValue);
 	void SetReceiveShadow(bool NewValue);
 
+	uint64 GetShadowCasterRevision() const { return ShadowCasterRevision; }
+
 	bool bCastsShadow = true;
 	bool bReceiveShadow = true;
 private:
@@ -54,4 +56,5 @@ private:
 	bool bRenderStateQueued = false;
 	bool bVisible = true;
 	bool bHiddenInGame = false;
+	uint64 ShadowCasterRevision = 1;
 };

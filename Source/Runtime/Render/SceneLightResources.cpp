@@ -59,8 +59,10 @@ bool FSceneLightResources::Init()
 	return bInitialized;
 }
 
-void FSceneLightResources::CreateShadowAtlasIfNeed(uint32 ShadowAtlasMapWidth, uint32 ShadowAtlasMapHeight, uint32 NeedAtlasCount)
+bool FSceneLightResources::CreateShadowAtlasIfNeed(uint32 ShadowAtlasMapWidth, uint32 ShadowAtlasMapHeight, uint32 NeedAtlasCount, bool& bOutRecreated)
 {
+	bOutRecreated = false;
+	NeedAtlasCount = std::max(1u, NeedAtlasCount);
 	if (!SceneLightShadowMapAtlas || ShadowAtlasMapWidth > SceneLightShadowMapAtlas->GetWidth() || ShadowAtlasMapHeight > SceneLightShadowMapAtlas->GetHeight() || NeedAtlasCount > SceneLightShadowMapAtlas->GetArraySize())
 	{
 		D3D11_TEXTURE2D_DESC Desc{};
@@ -71,10 +73,19 @@ void FSceneLightResources::CreateShadowAtlasIfNeed(uint32 ShadowAtlasMapWidth, u
 		Desc.SampleDesc.Count = 1;
 		Desc.Usage = D3D11_USAGE_DEFAULT;
 		Desc.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
-		Desc.Format = DXGI_FORMAT_R24G8_TYPELESS;
+		// No stencil component: required for rectangular DSV clears through ClearView.
+		Desc.Format = DXGI_FORMAT_R32_TYPELESS;
 
-		SceneLightShadowMapAtlas = RenderCommand::CreateTexture2DArray(Desc);
+		TUniquePtr<FTexture2DArray> NewAtlas = RenderCommand::CreateTexture2DArray(Desc);
+		if (!NewAtlas || !NewAtlas->GetRawPtr() || !NewAtlas->GetSRV() || !NewAtlas->GetDSV(0))
+		{
+			HTR_LOG(Error, "Failed to create Shadow Atlas texture array");
+			return false;
+		}
+		SceneLightShadowMapAtlas = std::move(NewAtlas);
+		bOutRecreated = true;
 	}
+	return SceneLightShadowMapAtlas && SceneLightShadowMapAtlas->GetRawPtr() && SceneLightShadowMapAtlas->GetSRV() && SceneLightShadowMapAtlas->GetArraySize() >= NeedAtlasCount;
 }
 
 bool FSceneLightResources::UploadViewLights(const TArray<FLightRenderParameters>& Lights)

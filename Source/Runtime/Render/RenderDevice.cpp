@@ -46,6 +46,10 @@ FRenderDevice::FRenderDevice()
 		D3D11_FEATURE_DATA_D3D11_OPTIONS Options{};
 		if (SUCCEEDED(Device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS, &Options, sizeof(Options))))
 			bConstantBufferOffsetting = Options.ConstantBufferOffsetting == TRUE;
+
+		// ClearView accepts rectangular depth clears only when the runtime/driver reports support.
+		D3D11_FEATURE_DATA_D3D11_OPTIONS1 Options1{};
+		bSupportsDepthOnlyClearView = SUCCEEDED(Device->CheckFeatureSupport(D3D11_FEATURE_D3D11_OPTIONS1, &Options1, sizeof(Options1))) && Options1.ClearViewAlsoSupportsDepthOnlyFormats == TRUE;
 	}
 	HTR_LOG(Info, "Constant buffer offsetting: {}", bConstantBufferOffsetting ? "on" : "off");
 

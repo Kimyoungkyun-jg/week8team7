@@ -26,6 +26,7 @@ void FPrimitiveSceneProxy::OnMeshRenderDataChanged()
 
 void FPrimitiveSceneProxy::OnMeshDestroyed()
 {
+    ++ShadowCasterRevision;
     Mesh = nullptr;
     RenderState.reset();
 }
@@ -37,10 +38,12 @@ void FPrimitiveSceneProxy::UpdateTransform()
     const FBox LocalBounds = Mesh ? Mesh->GetRenderBounds() : Component->CalcLocalBounds();
     Bounds = MakeWorldBounds(LocalBounds.GetWorldAABB(LocalToWorld));
     LODSphere = Mesh ? Mesh->GetLocalLODSphere().Transform(LocalToWorld) : FLODSphere{};
+    ++ShadowCasterRevision;
 }
 
 void FPrimitiveSceneProxy::UpdateRenderState()
 {
+    ++ShadowCasterRevision;
     UStaticMesh* PreviousMesh = Mesh;
     Mesh = nullptr;
     RenderState.reset();
