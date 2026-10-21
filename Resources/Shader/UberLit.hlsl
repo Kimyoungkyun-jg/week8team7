@@ -257,7 +257,7 @@ void CalculateRectLight(inout FLightResult Result, FLightRenderParameters Info,
 	AddLight(Result, N, V, L, Radiance, bIncludeSpecular);
 }
 
-FLightResult CalculateBaseLighting(float3 P, float ViewDepth, float3 N, float3 V, bool bIncludeSpecular)
+FLightResult CalculateBaseLighting(float3 PixelPosition, float3 P, float ViewDepth, float3 N, float3 V, bool bIncludeSpecular)
 {
     FLightResult Result;
     Result.Diffuse = CalculateAmbientLight(Ambient) + CalculateSkyLight(N);
@@ -282,7 +282,7 @@ FLightResult CalculateBaseLighting(float3 P, float ViewDepth, float3 N, float3 V
         if (CascadeIndex != -1)
         {
             FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.z + (DirectionalIndex * CascadeShadowCount + CascadeIndex)];
-            Shadow = CalculateShadow(P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
+            Shadow = CalculateShadow(PixelPosition, P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
         }
             
         FLightResult DirectionalResult = (FLightResult) 0;
@@ -297,7 +297,7 @@ FLightResult CalculateBaseLighting(float3 P, float ViewDepth, float3 N, float3 V
     return Result;
 }
 
-void AddAllLocalLights(inout FLightResult Result, float3 P, float3 N,
+void AddAllLocalLights(inout FLightResult Result, float3 PixelPosition, float3 P, float3 N,
     float3 V, bool bIncludeSpecular)
 {
     [loop]
@@ -326,7 +326,7 @@ void AddAllLocalLights(inout FLightResult Result, float3 P, float3 N,
             
         FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.x + (PointIndex * 6 + FaceIndex)];
             
-        float Shadow = CalculateShadow(P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
+        float Shadow = CalculateShadow(PixelPosition, P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
 
         FLightResult PointResult = (FLightResult) 0;
         CalculatePointLight(PointResult, SceneLights[LightOffsets.x + PointIndex], P, N, V, bIncludeSpecular);
@@ -341,7 +341,7 @@ void AddAllLocalLights(inout FLightResult Result, float3 P, float3 N,
         
         FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.y + SpotIndex];
             
-        float Shadow = CalculateShadow(P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
+        float Shadow = CalculateShadow(PixelPosition, P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
             
         FLightResult SpotResult = (FLightResult) 0;
         CalculateSpotLight(SpotResult, Light, P, N, V, bIncludeSpecular);
@@ -356,13 +356,13 @@ void AddAllLocalLights(inout FLightResult Result, float3 P, float3 N,
     }
 }
 
-FLightResult CalculateLighting(float3 P, float ViewDepth, float3 Normal, bool bIncludeSpecular)
+FLightResult CalculateLighting(float3 PixelPosition, float3 P, float ViewDepth, float3 Normal, bool bIncludeSpecular)
 {
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
-    FLightResult Result = CalculateBaseLighting(P, ViewDepth, N, V, bIncludeSpecular);
-    AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+    FLightResult Result = CalculateBaseLighting(PixelPosition, P, ViewDepth, N, V, bIncludeSpecular);
+    AddAllLocalLights(Result, PixelPosition, P, N, V, bIncludeSpecular);
     return Result;
 }
 
@@ -372,12 +372,12 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float ViewDe
     float3 N = normalize(Normal);
     float3 ToCamera = CameraPosition.xyz - P;
     float3 V = ToCamera * rsqrt(max(dot(ToCamera, ToCamera), 1.0e-8f));
-    FLightResult Result = CalculateBaseLighting(P, ViewDepth, N, V, bIncludeSpecular);
+    FLightResult Result = CalculateBaseLighting(PixelPosition, P, ViewDepth, N, V, bIncludeSpecular);
 
     if (GridMode == LIGHT_GRID_MODE_OFF)
     {
         // Off는 업로드된 전체 로컬 광원을 평가한다.
-        AddAllLocalLights(Result, P, N, V, bIncludeSpecular);
+        AddAllLocalLights(Result, PixelPosition, P, N, V, bIncludeSpecular);
     }
     else
     {
@@ -418,7 +418,7 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float ViewDe
             
             FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.x + (LightIndex * 6 + FaceIndex)];
             
-            float Shadow = CalculateShadow(P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
+            float Shadow = CalculateShadow(PixelPosition, P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
             
             FLightResult PointResult = (FLightResult) 0;
             CalculatePointLight(PointResult, Light, P, N, V, bIncludeSpecular);
@@ -436,7 +436,7 @@ FLightResult CalculateTiledLighting(float3 PixelPosition, float3 P, float ViewDe
             
             FLightShadowRenderData LightShadow = LightShadows[LightShadowOffsets.y + LightIndex];
             
-            float Shadow = CalculateShadow(P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
+            float Shadow = CalculateShadow(PixelPosition, P, Light, LightShadow, LightShadowAtlas, ShadowAtlasWidth, ShadowAtlasHeight, PointSampler, ShadowSampler, ShadowFlags.x, PcfMode);
             
             FLightResult SpotResult = (FLightResult) 0;
             CalculateSpotLight(SpotResult, Light, P, N, V, bIncludeSpecular);
@@ -472,7 +472,7 @@ VS_OUT Uber_VS(VS_IN Input)
     float Handedness = Input.Tangent.w * (determinant((float3x3)World) < 0.0f ? -1.0f : 1.0f);
     Output.WorldTangent = float4(T, Handedness);
 #if LIGHTING_MODEL_GOURAUD
-    FLightResult Lit = CalculateLighting(WorldPosition.xyz, ViewPosition.x, N, true);
+    FLightResult Lit = CalculateLighting(float3(0, 0, 0), WorldPosition.xyz, ViewPosition.x, N, true);
     Output.VertexDiffuse = Lit.Diffuse;
     Output.VertexSpecular = Lit.Specular;
 #elif !VIEW_MODE_WORLD_NORMAL

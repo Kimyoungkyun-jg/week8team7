@@ -7,7 +7,7 @@ struct FSceneRenderOptions
 {
 	bool bDrawPrimitives = true;
 	bool bShowShadow = true;
-	EPcfMode PcfMode = EPcfMode::On;
+	EPcfMode PcfMode = EPcfMode::Sampel8;
 	float ShadowDepthBias = 0.0001f;
 	bool bEnableFog = true;
 	bool bEnableFXAA = false;

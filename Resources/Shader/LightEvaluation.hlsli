@@ -20,42 +20,31 @@ struct FShadowCoordinates
 };
 
 // Best-candidate Poisson samples within the unit disk.
-static const uint PoissonSampleCount = 32;
-static const float2 PoissonDisk[PoissonSampleCount] =
+#define POISSON_COUNT 16
+static const float2 PoissonDisk[POISSON_COUNT] =
 {
-    float2(-0.68341047, -0.26169425),
-    float2(0.92626810, 0.36191782),
-    float2(-0.22649025, 0.95149655),
-    float2(0.49230477, -0.86085707),
-    float2(0.08114958, 0.14360106),
-    float2(-0.26010181, -0.93738593),
-    float2(-0.85894994, 0.50310161),
-    float2(0.43717422, 0.85403625),
-    float2(0.93843458, -0.32464634),
-    float2(0.09392068, -0.43937528),
-    float2(-0.37764098, 0.36231411),
-    float2(0.49220528, -0.12107827),
-    float2(-0.65549162, -0.71528620),
-    float2(-0.24774403, -0.16076377),
-    float2(0.46676082, 0.40285104),
-    float2(0.05545897, 0.60007380),
-    float2(-0.94426393, 0.08583122),
-    float2(-0.30051113, -0.55052650),
-    float2(-0.58954771, 0.78290908),
-    float2(0.11683487, -0.93823656),
-    float2(0.52408168, -0.49861045),
-    float2(0.72293188, 0.65095385),
-    float2(0.81920464, 0.00911533),
-    float2(-0.57186791, 0.07081329),
-    float2(0.11791642, 0.98891043),
-    float2(-0.86593411, -0.48262448),
-    float2(-0.25818098, 0.65025289),
-    float2(0.20555281, -0.13129390),
-    float2(-0.97871542, -0.20254113),
-    float2(-0.03298199, -0.69704464),
-    float2(0.78394164, -0.61996089),
-    float2(0.27027231, -0.67373301)
+    float2(-0.94201624, -0.39906216),
+    float2(0.94558609, -0.76890725),
+    float2(-0.094184101, -0.92938870),
+    float2(0.34495938, 0.29387760),
+    float2(-0.91588581, 0.45771432),
+    float2(-0.81544232, -0.87912464),
+    float2(-0.38277543, 0.27676845),
+    float2(0.97484398, 0.75648379),
+    float2(0.44323325, -0.97511554),
+    float2(0.53742981, -0.47373420),
+    float2(-0.26496911, -0.41893023),
+    float2(0.79197514, 0.19090188),
+    float2(-0.24188840, 0.99706507),
+    float2(-0.81409955, 0.91437590),
+    float2(0.19984126, 0.78641367),
+    float2(0.14383161, -0.14100790)
 };
+
+float InterleavedGradientNoise(float2 pixelPos)
+{
+    return frac(52.9829189f * frac(dot(pixelPos, float2(0.06711056f, 0.00583715f))));
+}
 
 float CalculateDistanceAttenuation(float DistanceSquared, float RadiusSquared)
 {
@@ -89,17 +78,21 @@ float CalculateLinearDepth(float Z, float Near, float Far)
     return (Near * Far) / (Far - Z * (Far - Near));
 }
 
-float PCF(int SampleCount, FShadowCoordinates Coordinates, float2 FilterRadius, float Bias, Texture2DArray Atlas, uint AtlasIndex, SamplerComparisonState ShadowSampler)
+float PCF(int SampleCount, FShadowCoordinates Coordinates, float3 PixelPosition, float3 P, float2 FilterRadius, float Bias, Texture2DArray Atlas, uint AtlasIndex, SamplerComparisonState ShadowSampler)
 {
     float Result = 1.0;
     
-    SampleCount = min(SampleCount, PoissonSampleCount);
+    SampleCount = min(SampleCount, POISSON_COUNT);
+    
+    float S, C;
+    sincos(InterleavedGradientNoise(PixelPosition.xy) * 6.28318530718f, S, C);
     
     int ValidSample = 0;
     float Sum = 0.0;
     for (uint i = 0; i < SampleCount; i++)
     {
-        float2 Offset = PoissonDisk[i] * FilterRadius;
+        float2 Rotated = float2(C * PoissonDisk[i].x - S * PoissonDisk[i].y, S * PoissonDisk[i].x + C * PoissonDisk[i].y);
+        float2 Offset = Rotated * FilterRadius;
         float2 UV = Coordinates.CenterUV + Offset;
         
         if (any(UV < Coordinates.MinUV) || any(UV > Coordinates.MaxUV))
@@ -182,7 +175,7 @@ bool FindAverageBlockerDepth(FShadowCoordinates Coordinates, float2 SearchRadius
         BlockerCount++;
     }
     
-    for (uint i = 0; i < PoissonSampleCount; i++)
+    for (uint i = 0; i < POISSON_COUNT; i++)
     {
         float2 Offset = PoissonDisk[i] * SearchRadiusUV;
         float2 UV = Coordinates.CenterUV + Offset;
@@ -211,7 +204,7 @@ bool FindAverageBlockerDepth(FShadowCoordinates Coordinates, float2 SearchRadius
     return true;
 }
 
-float CalculateDirectionalShadowPCSS(float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
+float CalculateDirectionalShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
 {    
     FShadowCoordinates Coordinates;
     if (!CalculateShadowCoordinates(P, Shadow, AtlasWidth, AtlasHeight, Coordinates))
@@ -219,7 +212,9 @@ float CalculateDirectionalShadowPCSS(float3 P, FLightRenderParameters Light, FLi
         return 1.0f;
     }
         
-    const float DepthBias = 0.001f;
+    // 월드 단위의 조정값
+    const float WorldDepthBias = 0.01f; 
+    float DepthBias = WorldDepthBias / (Shadow.Far - Shadow.Near);
     
     float2 AtlasSize = float2(AtlasWidth, AtlasHeight);
 
@@ -256,10 +251,13 @@ float CalculateDirectionalShadowPCSS(float3 P, FLightRenderParameters Light, FLi
     float FilterRadiusWorld = Light.SourceSize * RecieverDist;
     float2 FilterRadiusUV = FilterRadiusWorld * WorldToLocalUV * LocalToAtlasUV;
     
-    return PCF(PoissonSampleCount, Coordinates, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
+    float2 FilterRadiusTexels = FilterRadiusUV * AtlasSize;
+    float RadiusTexels = max(FilterRadiusTexels.x, FilterRadiusTexels.y);
+    
+    return PCF(POISSON_COUNT, Coordinates, PixelPosition, P, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
 }
 
-float CalculatePointShadowPCSS(float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
+float CalculatePointShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
 {
     FShadowCoordinates Coordinates;
     if (!CalculateShadowCoordinates(P, Shadow, AtlasWidth, AtlasHeight, Coordinates))
@@ -297,10 +295,10 @@ float CalculatePointShadowPCSS(float3 P, FLightRenderParameters Light, FLightSha
     float FilterRadiusLocalUV = FilterRadiusWorld / (2.0f * ReceiverDepth);
     float2 FilterRadiusUV = FilterRadiusLocalUV * LocalToAtlasUV;
     
-    return PCF(PoissonSampleCount, Coordinates, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
+    return PCF(POISSON_COUNT, Coordinates, PixelPosition, P, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
 }
 
-float CalculateSpotShadowPCSS(float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
+float CalculateSpotShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler)
 {
     FShadowCoordinates Coordinates;
     if (!CalculateShadowCoordinates(P, Shadow, AtlasWidth, AtlasHeight, Coordinates))
@@ -339,10 +337,10 @@ float CalculateSpotShadowPCSS(float3 P, FLightRenderParameters Light, FLightShad
     float FilterRadiusLocalUV = FilterRadiusWorld / (2.0f * ReceiverDepth * TanHalfFov);
     float2 FilterRadiusUV = FilterRadiusLocalUV * LocalToAtlasUV;
     
-    return PCF(PoissonSampleCount, Coordinates, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
+    return PCF(POISSON_COUNT, Coordinates, PixelPosition, P, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
 }
 
-float CalculateShadow(float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler, float bReceiveShadow, uint PcfMode)
+float CalculateShadow(float3 PixelPosition, float3 P, FLightRenderParameters Light, FLightShadowRenderData Shadow, Texture2DArray Atlas, uint AtlasWidth, uint AtlasHeight, SamplerState PointSampler, SamplerComparisonState ShadowSampler, float bReceiveShadow, uint PcfMode)
 {
     [branch]
     if (bReceiveShadow < 0.5f)
@@ -355,15 +353,15 @@ float CalculateShadow(float3 P, FLightRenderParameters Light, FLightShadowRender
         // PCSSMode
         if (Light.Type == LIGHT_TYPE_DIRECTIONAL)
         {
-            return CalculateDirectionalShadowPCSS(P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
+            return CalculateDirectionalShadowPCSS(PixelPosition, P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
         }
         else if (Light.Type == LIGHT_TYPE_POINT)
         {
-            return CalculatePointShadowPCSS(P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
+            return CalculatePointShadowPCSS(PixelPosition, P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
         }
         else if (Light.Type == LIGHT_TYPE_SPOT)
         {
-            return CalculateSpotShadowPCSS(P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
+            return CalculateSpotShadowPCSS(PixelPosition, P, Light, Shadow, Atlas, AtlasWidth, AtlasHeight, PointSampler, ShadowSampler);
         }
     }
     
@@ -396,7 +394,7 @@ float CalculateShadow(float3 P, FLightRenderParameters Light, FLightShadowRender
     float2 TexelSize = 1.0f / float2(AtlasWidth, AtlasHeight);
     float RadiusTexels = (float) PcfMode;
     
-    return PCF(SampleCount, Coordinates, TexelSize * RadiusTexels, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
+    return PCF(SampleCount, Coordinates, PixelPosition, P, TexelSize * RadiusTexels, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
 }
 
 #endif

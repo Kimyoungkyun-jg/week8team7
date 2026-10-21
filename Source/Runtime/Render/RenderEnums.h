@@ -32,7 +32,9 @@ enum class ELightCullingMode
 enum class EPcfMode : uint32_t
 {
     Off = 0,
-    On = 1, // 3x3
-    Kernel4x4 = 2,
-    Kernel5x5 = 3
+    Sampel8, 
+    Sample16 = 2,
+    Sample32 = 3,
+    PCSS,
+    Count
 };
