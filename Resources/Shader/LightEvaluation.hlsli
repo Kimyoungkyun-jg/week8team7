@@ -23,22 +23,22 @@ struct FShadowCoordinates
 #define POISSON_COUNT 16
 static const float2 PoissonDisk[POISSON_COUNT] =
 {
-    float2(-0.94201624, -0.39906216),
-    float2(0.94558609, -0.76890725),
-    float2(-0.094184101, -0.92938870),
-    float2(0.34495938, 0.29387760),
-    float2(-0.91588581, 0.45771432),
-    float2(-0.81544232, -0.87912464),
-    float2(-0.38277543, 0.27676845),
-    float2(0.97484398, 0.75648379),
-    float2(0.44323325, -0.97511554),
-    float2(0.53742981, -0.47373420),
-    float2(-0.26496911, -0.41893023),
-    float2(0.79197514, 0.19090188),
-    float2(-0.24188840, 0.99706507),
-    float2(-0.81409955, 0.91437590),
-    float2(0.19984126, 0.78641367),
-    float2(0.14383161, -0.14100790)
+    float2(0.758417f, 0.604537f),
+    float2(0.666262f, -0.501792f),
+    float2(0.044159f, 0.940217f),
+    float2(-0.618833f, 0.442616f),
+    float2(0.276293f, 0.651964f),
+    float2(-0.399537f, -0.290897f),
+    float2(-0.104335f, -0.698866f),
+    float2(0.260315f, -0.652012f),
+    float2(0.129753f, 0.215359f),
+    float2(0.333606f, -0.138314f),
+    float2(0.484882f, 0.283357f),
+    float2(-0.074304f, -0.153791f),
+    float2(-0.255648f, 0.191645f),
+    float2(-0.649947f, -0.709589f),
+    float2(0.838194f, 0.199567f),
+    float2(-0.354359f, 0.686538f)
 };
 
 float InterleavedGradientNoise(float2 pixelPos)
@@ -102,7 +102,7 @@ float PCF(int SampleCount, FShadowCoordinates Coordinates, float3 PixelPosition,
         
         float ReceiverDepthAtSample = Coordinates.Depth + dot(Coordinates.DepthSlope, Offset);
         
-        Sum += Atlas.SampleCmpLevelZero(ShadowSampler, float3(UV, AtlasIndex), ReceiverDepthAtSample - Bias).r;
+        Sum += Atlas.SampleCmpLevelZero(ShadowSampler, float3(UV, AtlasIndex), Coordinates.Depth - Bias).r;
         ValidSample++;
     }
             
@@ -160,7 +160,7 @@ bool CalculateShadowCoordinates(float3 P, FLightShadowRenderData Shadow, uint At
     return true;
 }
 
-bool FindAverageBlockerDepth(FShadowCoordinates Coordinates, float2 SearchRadiusUV, float DepthBias, FLightShadowRenderData Shadow, bool bPerspective, Texture2DArray Atlas, SamplerState PointSampler, out float AverageBlockerDepth)
+bool FindAverageBlockerDepth(float3 PixelPosition, FShadowCoordinates Coordinates, float2 SearchRadiusUV, float DepthBias, FLightShadowRenderData Shadow, bool bPerspective, Texture2DArray Atlas, SamplerState PointSampler, out float AverageBlockerDepth)
 {
     AverageBlockerDepth = 0.0;
     
@@ -175,9 +175,13 @@ bool FindAverageBlockerDepth(FShadowCoordinates Coordinates, float2 SearchRadius
         BlockerCount++;
     }
     
+    float S, C;
+    sincos(InterleavedGradientNoise(PixelPosition.xy) * 6.28318530718f, S, C);
+    
     for (uint i = 0; i < POISSON_COUNT; i++)
     {
-        float2 Offset = PoissonDisk[i] * SearchRadiusUV;
+        float2 Rotated = float2(C * PoissonDisk[i].x - S * PoissonDisk[i].y, S * PoissonDisk[i].x + C * PoissonDisk[i].y);
+        float2 Offset = Rotated * SearchRadiusUV;
         float2 UV = Coordinates.CenterUV + Offset;
         
         if (any(UV < Coordinates.MinUV) || any(UV > Coordinates.MaxUV))
@@ -188,7 +192,7 @@ bool FindAverageBlockerDepth(FShadowCoordinates Coordinates, float2 SearchRadius
         float ReceiverDepthAtSample = Coordinates.Depth + dot(Coordinates.DepthSlope, Offset);
         
         float SampledDepth = Atlas.SampleLevel(PointSampler, float3(UV, Shadow.AtlasIndex), 0).r;
-        if (SampledDepth < ReceiverDepthAtSample - DepthBias)
+        if (SampledDepth < Coordinates.Depth - DepthBias)
         {
             BlockerDepthSum += bPerspective ? CalculateLinearDepth(SampledDepth, Shadow.Near, Shadow.Far) : SampledDepth;
             BlockerCount++;
@@ -239,7 +243,7 @@ float CalculateDirectionalShadowPCSS(float3 PixelPosition, float3 P, FLightRende
     
     // Blocker를 탐색한다.
     float AverageBlockerDepth;
-    if (!FindAverageBlockerDepth(Coordinates, SearchRadiusUV, DepthBias, Shadow, false, Atlas, PointSampler, AverageBlockerDepth))
+    if (!FindAverageBlockerDepth(PixelPosition, Coordinates, SearchRadiusUV, DepthBias, Shadow, false, Atlas, PointSampler, AverageBlockerDepth))
     {
         return 1.0f;
     }
@@ -250,9 +254,6 @@ float CalculateDirectionalShadowPCSS(float3 PixelPosition, float3 P, FLightRende
     // 필터 반지름과 그 값을 통해 FilterRadiusUV를 구한다.
     float FilterRadiusWorld = Light.SourceSize * RecieverDist;
     float2 FilterRadiusUV = FilterRadiusWorld * WorldToLocalUV * LocalToAtlasUV;
-    
-    float2 FilterRadiusTexels = FilterRadiusUV * AtlasSize;
-    float RadiusTexels = max(FilterRadiusTexels.x, FilterRadiusTexels.y);
     
     return PCF(POISSON_COUNT, Coordinates, PixelPosition, P, FilterRadiusUV, DepthBias, Atlas, Shadow.AtlasIndex, ShadowSampler);
 }
@@ -265,7 +266,8 @@ float CalculatePointShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParam
         return 1.0f;
     }
     
-    const float DepthBias = 0.001f;
+    const float WorldDepthBias = 0.01f;
+    float DepthBias = WorldDepthBias / (Shadow.Far - Shadow.Near);
     
     float2 AtlasSize = float2(AtlasWidth, AtlasHeight);
     
@@ -283,7 +285,7 @@ float CalculatePointShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParam
     
     // Blocker를 탐색한다.
     float AverageBlockerDepth;
-    if (!FindAverageBlockerDepth(Coordinates, SearchRadiusUV, DepthBias, Shadow, true, Atlas, PointSampler, AverageBlockerDepth))
+    if (!FindAverageBlockerDepth(PixelPosition, Coordinates, SearchRadiusUV, DepthBias, Shadow, true, Atlas, PointSampler, AverageBlockerDepth))
     {
         return 1.0f;
     }
@@ -306,7 +308,8 @@ float CalculateSpotShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParame
         return 1.0f;
     }
     
-    const float DepthBias = 0.001f;
+    const float WorldDepthBias = 0.01f;
+    float DepthBias = WorldDepthBias / (Shadow.Far - Shadow.Near);
     
     float2 AtlasSize = float2(AtlasWidth, AtlasHeight);
     
@@ -325,7 +328,7 @@ float CalculateSpotShadowPCSS(float3 PixelPosition, float3 P, FLightRenderParame
     
     // Blocker를 탐색한다.
     float AverageBlockerDepth;
-    if (!FindAverageBlockerDepth(Coordinates, SearchRadiusUV, DepthBias, Shadow, true, Atlas, PointSampler, AverageBlockerDepth))
+    if (!FindAverageBlockerDepth(PixelPosition, Coordinates, SearchRadiusUV, DepthBias, Shadow, true, Atlas, PointSampler, AverageBlockerDepth))
     {
         return 1.0f;
     }
